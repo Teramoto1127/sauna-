@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ととのい黄金比</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-inner">
+      <div class="brand">
+        <h1>ととのい黄金比</h1>
+        <p>サウナ・水風呂・外気浴の配分を記録して、自分に合う時間を見つける</p>
+      </div>
+      <nav class="tabs" aria-label="画面切り替え">
+        <button type="button" class="tab is-active" data-view="record">記録</button>
+        <button type="button" class="tab" data-view="golden">黄金比</button>
+        <button type="button" class="tab" data-view="predict">予測</button>
+        <button type="button" class="tab" data-view="dashboard">振り返り</button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- 記録 -->
+    <section id="view-record" class="view" aria-label="記録">
+      <div class="card timer" id="timer">
+        <div class="timer-head">
+          <span class="label">ストップウォッチ</span>
+          <span class="timer-phase" id="timer-phase">待機中</span>
+        </div>
+        <div class="timer-display" id="timer-display" aria-live="off">00:00</div>
+        <div class="phase-buttons">
+          <button type="button" class="phase-btn" data-phase="sauna">サウナ</button>
+          <button type="button" class="phase-btn" data-phase="water">水風呂</button>
+          <button type="button" class="phase-btn" data-phase="rest">外気浴</button>
+        </div>
+        <p class="hint">押した区間の時間が、下の入力欄へ自動で入ります。もう一度押すと止まります。サウナを押し直すと次のセットになります。</p>
+      </div>
+
+      <form id="session-form" class="card form" novalidate>
+        <h2>今日のセッション</h2>
+
+        <div class="grid two">
+          <div class="field">
+            <label for="f-date">日付</label>
+            <input type="date" id="f-date" required>
+          </div>
+          <div class="field">
+            <label for="f-facility">施設名</label>
+            <input type="text" id="f-facility" list="facility-list" maxlength="100" placeholder="例: 〇〇サウナ">
+            <datalist id="facility-list"></datalist>
+          </div>
+        </div>
+
+        <div class="grid three">
+          <div class="field">
+            <label for="f-sauna-temp">サウナ室 (℃)</label>
+            <input type="number" id="f-sauna-temp" inputmode="decimal" min="40" max="130" step="1" placeholder="90">
+          </div>
+          <div class="field">
+            <label for="f-water-temp">水風呂 (℃)</label>
+            <input type="number" id="f-water-temp" inputmode="decimal" min="0" max="40" step="0.5" placeholder="15">
+          </div>
+          <div class="field">
+            <label for="f-sleep">前日の睡眠 (時間)</label>
+            <input type="number" id="f-sleep" inputmode="decimal" min="0" max="24" step="0.5" placeholder="7">
+          </div>
+        </div>
+
+        <div class="grid two">
+          <fieldset class="field seg">
+            <legend>疲労度</legend>
+            <div class="seg-row">
+              <label><input type="radio" name="fatigue" value="low"><span>低</span></label>
+              <label><input type="radio" name="fatigue" value="mid" checked><span>中</span></label>
+              <label><input type="radio" name="fatigue" value="high"><span>高</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="field seg">
+            <legend>サウナ前の食事</legend>
+            <div class="seg-row">
+              <label><input type="radio" name="ate" value="no" checked><span>なし</span></label>
+              <label><input type="radio" name="ate" value="yes"><span>あり</span></label>
+            </div>
+          </fieldset>
+        </div>
+
+        <div class="sets-block">
+          <div class="sets-head">
+            <h3>セットごとの時間 (分)</h3>
+            <button type="button" class="btn ghost" id="add-set">セットを追加</button>
+          </div>
+          <div id="sets"></div>
+        </div>
+
+        <fieldset class="field seg">
+          <legend>ととのい度</legend>
+          <div class="seg-row score-row" id="score-row">
+            <label><input type="radio" name="score" value="1"><span>1</span></label>
+            <label><input type="radio" name="score" value="2"><span>2</span></label>
+            <label><input type="radio" name="score" value="3"><span>3</span></label>
+            <label><input type="radio" name="score" value="4"><span>4</span></label>
+            <label><input type="radio" name="score" value="5"><span>5</span></label>
+          </div>
+          <div class="score-scale"><span>いまいち</span><span>ととのった</span></div>
+        </fieldset>
+
+        <div class="field">
+          <label for="f-note">メモ (任意)</label>
+          <textarea id="f-note" rows="2" maxlength="500" placeholder="水風呂が気持ちよかった、など"></textarea>
+        </div>
+
+        <p class="error" id="form-error" role="alert" hidden></p>
+        <button type="submit" class="btn primary">記録する</button>
+      </form>
+
+      <div class="card">
+        <h2>最近の記録</h2>
+        <div id="recent"></div>
+      </div>
+    </section>
+
+    <!-- 黄金比 -->
+    <section id="view-golden" class="view" aria-label="黄金比" hidden>
+      <div id="golden-body"></div>
+    </section>
+
+    <!-- 予測 -->
+    <section id="view-predict" class="view" aria-label="予測" hidden>
+      <form id="predict-form" class="card form" novalidate>
+        <h2>今日のコンディションから予測</h2>
+        <p class="hint">記録をもとに学習したモデルが、今日の体調と環境で最もととのいやすい時間配分を探します。</p>
+        <div class="grid three">
+          <div class="field">
+            <label for="p-sauna-temp">サウナ室 (℃)</label>
+            <input type="number" id="p-sauna-temp" inputmode="decimal" min="40" max="130" step="1" placeholder="90">
+          </div>
+          <div class="field">
+            <label for="p-water-temp">水風呂 (℃)</label>
+            <input type="number" id="p-water-temp" inputmode="decimal" min="0" max="40" step="0.5" placeholder="15">
+          </div>
+          <div class="field">
+            <label for="p-sleep">前日の睡眠 (時間)</label>
+            <input type="number" id="p-sleep" inputmode="decimal" min="0" max="24" step="0.5" placeholder="7">
+          </div>
+        </div>
+        <div class="grid three">
+          <fieldset class="field seg">
+            <legend>疲労度</legend>
+            <div class="seg-row">
+              <label><input type="radio" name="p-fatigue" value="low"><span>低</span></label>
+              <label><input type="radio" name="p-fatigue" value="mid" checked><span>中</span></label>
+              <label><input type="radio" name="p-fatigue" value="high"><span>高</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="field seg">
+            <legend>食事</legend>
+            <div class="seg-row">
+              <label><input type="radio" name="p-ate" value="no" checked><span>なし</span></label>
+              <label><input type="radio" name="p-ate" value="yes"><span>あり</span></label>
+            </div>
+          </fieldset>
+          <div class="field">
+            <label for="p-sets">セット数</label>
+            <input type="number" id="p-sets" inputmode="numeric" min="1" max="12" step="1" value="3">
+          </div>
+        </div>
+        <details class="plan">
+          <summary>決めている配分を評価する (任意)</summary>
+          <div class="grid three">
+            <div class="field"><label for="p-plan-sauna">サウナ (分)</label><input type="number" id="p-plan-sauna" inputmode="decimal" min="0" max="60" step="0.5"></div>
+            <div class="field"><label for="p-plan-water">水風呂 (分)</label><input type="number" id="p-plan-water" inputmode="decimal" min="0" max="30" step="0.5"></div>
+            <div class="field"><label for="p-plan-rest">休憩 (分)</label><input type="number" id="p-plan-rest" inputmode="decimal" min="0" max="120" step="0.5"></div>
+          </div>
+        </details>
+        <p class="error" id="predict-error" role="alert" hidden></p>
+        <button type="submit" class="btn primary">最適な配分を予測する</button>
+      </form>
+      <div id="predict-result"></div>
+    </section>
+
+    <!-- 振り返り -->
+    <section id="view-dashboard" class="view" aria-label="振り返り" hidden>
+      <div id="stats" class="stats"></div>
+      <div class="card">
+        <h2>ととのい度の推移</h2>
+        <div class="chart-box"><canvas id="chart-trend" aria-label="ととのい度の推移"></canvas></div>
+      </div>
+      <div class="grid two-wide">
+        <div class="card">
+          <h2>月ごとの回数</h2>
+          <div class="chart-box short"><canvas id="chart-monthly" aria-label="月ごとの回数"></canvas></div>
+        </div>
+        <div class="card">
+          <h2>セット別の平均時間</h2>
+          <div class="chart-box short"><canvas id="chart-sets" aria-label="セット別の平均時間"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="cal-head">
+          <h2 id="cal-title">カレンダー</h2>
+          <div class="cal-nav">
+            <button type="button" class="btn ghost" id="cal-prev" aria-label="前の月">←</button>
+            <button type="button" class="btn ghost" id="cal-next" aria-label="次の月">→</button>
+          </div>
+        </div>
+        <div id="calendar" class="calendar"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div id="sample-controls"></div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

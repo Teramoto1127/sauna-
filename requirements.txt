@@ -1,0 +1,8 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+scikit-learn>=1.3
+numpy>=1.26
+
+# テスト用
+pytest>=8.0
+httpx>=0.27
