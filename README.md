@@ -25,15 +25,30 @@
 
 ## 起動方法
 
-Python 3.10 以上が必要です。
+Node.js 18 以上と、Python 3.10 以上が必要です。予測モデルが Python(scikit-learn)で動くためです。
 
 ```bash
+npm run setup   # 初回だけ。Python の専用環境(.venv)を作ってライブラリを入れる
+npm run dev     # 起動
+```
+
+表示されたURL(通常は http://127.0.0.1:8000)をブラウザで開きます。8000番が使用中なら、空いている次のポートが自動で選ばれます。
+画面は同じサーバーから配信されるので、フロントエンドのビルドは不要です。
+
+<details>
+<summary>npm を使わずに起動する場合</summary>
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows は .venv\Scripts\activate
 pip install -r requirements.txt
 cd backend
 uvicorn app.main:app --reload
 ```
 
-ブラウザで http://127.0.0.1:8000 を開きます。画面は同じサーバーから配信されるので、フロントエンドのビルドは不要です。
+</details>
+
+専用環境(.venv)を使うのは、他のプロジェクトで入れた numpy や pandas とバージョンが衝突して起動できなくなるのを防ぐためです。
 ただしグラフ(Chart.js)とフォントは CDN から読み込むため、画面の表示にはインターネット接続が必要です。
 
 記録は `backend/sauna.db`(SQLite)に保存されます。別の場所を使うときは環境変数 `SAUNA_DB` にパスを指定します。
@@ -44,8 +59,7 @@ uvicorn app.main:app --reload
 ## テスト
 
 ```bash
-cd backend
-pytest
+npm test
 ```
 
 ## 構成
@@ -62,6 +76,7 @@ backend/
   tests/          pytest
 frontend/
   index.html  style.css  app.js   素の HTML/CSS/JS(Chart.js のみ CDN)
+scripts/          npm run setup / dev / test の中身(Node.js、追加の npm install は不要)
 ```
 
 ## API

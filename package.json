@@ -1,0 +1,15 @@
+{
+  "name": "sauna-golden-ratio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ととのい黄金比: サウナ・水風呂・外気浴の配分を記録し、黄金比を分析・予測するWebアプリ",
+  "scripts": {
+    "setup": "node scripts/setup.js",
+    "dev": "node scripts/dev.js",
+    "start": "node scripts/dev.js",
+    "test": "node scripts/test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
