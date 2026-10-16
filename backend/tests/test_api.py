@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -8,6 +10,11 @@ def client(tmp_path, monkeypatch):
     from app.main import app
 
     with TestClient(app) as c:  # lifespan を走らせて DB を初期化する
+        registered = c.post(
+            "/api/auth/register",
+            json={"email": "tester@example.com", "display_name": "テスト利用者", "password": "correct-horse-42"},
+        )
+        assert registered.status_code == 201
         yield c
 
 
@@ -44,6 +51,66 @@ def test_create_list_delete(client):
     assert client.delete(f"/api/sessions/{sid}").status_code == 204
     assert client.get("/api/sessions").json() == []
     assert client.delete(f"/api/sessions/{sid}").status_code == 404
+
+
+def test_auth_lifecycle_and_access_control(client):
+    assert client.get("/api/auth/me").json()["email"] == "tester@example.com"
+    assert client.post("/api/auth/register", json={
+        "email": "tester@example.com", "display_name": "重複", "password": "correct-horse-42",
+    }).status_code == 409
+
+    assert client.post("/api/auth/logout").status_code == 204
+    assert client.get("/api/sessions").status_code == 401
+    assert client.post("/api/auth/login", json={
+        "email": "tester@example.com", "password": "wrong-password",
+    }).status_code == 401
+
+    login = client.post("/api/auth/login", json={
+        "email": "TESTER@example.com", "password": "correct-horse-42",
+    })
+    assert login.status_code == 200
+    assert login.json()["display_name"] == "テスト利用者"
+
+
+def test_sessions_are_isolated_between_users(client):
+    sid = client.post("/api/sessions", json=payload()).json()["id"]
+    registered = client.post("/api/auth/register", json={
+        "email": "other@example.com", "display_name": "別の利用者", "password": "different-password-7",
+    })
+    assert registered.status_code == 201
+    assert client.get("/api/sessions").json() == []
+    assert client.delete(f"/api/sessions/{sid}").status_code == 404
+
+
+def test_first_registration_claims_legacy_records(tmp_path, monkeypatch):
+    """認証導入前の sessions テーブルを消さずに最初の利用者へ移せる。"""
+    legacy_db = tmp_path / "legacy.db"
+    with sqlite3.connect(legacy_db) as conn:
+        conn.executescript("""
+            CREATE TABLE sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                visited_on TEXT NOT NULL,
+                facility TEXT NOT NULL DEFAULT '', sauna_temp REAL, water_temp REAL, sleep_hours REAL,
+                fatigue TEXT NOT NULL DEFAULT 'mid', ate_before INTEGER NOT NULL DEFAULT 0,
+                score INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '', is_sample INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE sets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL,
+                set_no INTEGER NOT NULL, sauna_min REAL NOT NULL, water_min REAL NOT NULL, rest_min REAL NOT NULL
+            );
+            INSERT INTO sessions (visited_on, score) VALUES ('2026-10-01', 4);
+            INSERT INTO sets (session_id, set_no, sauna_min, water_min, rest_min) VALUES (1, 1, 9, 1, 10);
+        """)
+    monkeypatch.setenv("SAUNA_DB", str(legacy_db))
+    from app.main import app
+
+    with TestClient(app) as c:
+        r = c.post("/api/auth/register", json={
+            "email": "legacy@example.com", "display_name": "既存利用者", "password": "legacy-password-9",
+        })
+        assert r.status_code == 201
+        assert r.json()["claimed_legacy_sessions"] == 1
+        assert len(c.get("/api/sessions").json()) == 1
 
 
 def test_validation_rejects_bad_input(client):
@@ -99,5 +166,6 @@ def test_frontend_is_served(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "ととのい黄金比" in r.text
+    assert "ログイン" in r.text
     assert client.get("/app.js").status_code == 200
     assert client.get("/api/health").json() == {"status": "ok"}

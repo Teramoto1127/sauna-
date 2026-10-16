@@ -67,6 +67,23 @@ h3 { font-size: 14px; font-weight: 700; }
 
 .wrap, .top-inner, main, .foot { max-width: 760px; margin-inline: auto; }
 
+/* ---- 認証 ---- */
+.auth-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px 0; }
+.auth-card {
+  width: min(100%, 440px);
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.auth-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; padding: 4px; background: var(--field); border: 1px solid var(--line); border-radius: 10px; }
+.auth-tab { font: inherit; border: 0; border-radius: 7px; padding: 9px; color: var(--muted); background: transparent; cursor: pointer; }
+.auth-tab.is-active { background: var(--ink); color: var(--on-ink); font-weight: 700; }
+.auth-form { display: grid; gap: 14px; }
+.auth-note { color: var(--muted); font-size: 12.5px; }
+
 /* ---- ヘッダーとタブ ---- */
 .top {
   position: sticky;
@@ -80,10 +97,14 @@ h3 { font-size: 14px; font-weight: 700; }
   border-bottom: 1px solid var(--line);
 }
 .brand p { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.top-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.account { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.account span { color: var(--muted); font-size: 12.5px; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account .btn { white-space: nowrap; }
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
   margin-top: 10px;
   padding: 4px;
@@ -271,6 +292,18 @@ th, td { text-align: right; padding: 7px 8px; border-top: 1px solid var(--line);
 th:first-child, td:first-child { text-align: left; }
 th { color: var(--muted); font-weight: 500; font-size: 12px; border-top: 0; }
 
+/* ---- 医学論文 RAG ---- */
+.research-examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.research-examples .btn { text-align: left; }
+.research-summary { border-left: 4px solid var(--water); }
+.research-safety { color: var(--danger); font-size: 13px; }
+.paper-card { gap: 9px; }
+.paper-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.paper-types { display: flex; flex-wrap: wrap; gap: 4px; }
+.paper-excerpt { display: grid; gap: 4px; padding: 10px 12px; background: var(--field); border-radius: 8px; }
+.paper-excerpt p { font-size: 13px; line-height: 1.55; }
+.paper-link { color: var(--water); font-weight: 700; }
+
 /* ---- 振り返り ---- */
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
@@ -319,6 +352,10 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; border-top: 0; }
 }
 
 @media (max-width: 520px) {
+  .tab { font-size: 12px; padding-inline: 2px; }
+  .top-head { align-items: center; }
+  .account { flex-direction: column; align-items: flex-end; gap: 2px; }
+  .account .btn { padding: 4px 7px; font-size: 12px; }
   .grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid.two-wide, .compare { grid-template-columns: minmax(0, 1fr); }
   .timer-display { font-size: 48px; }

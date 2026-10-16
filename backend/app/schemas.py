@@ -3,11 +3,44 @@
 from __future__ import annotations
 
 from datetime import date
+import re
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Fatigue = Literal["low", "mid", "high"]
+
+
+class RegisterIn(BaseModel):
+    email: str = Field(max_length=254)
+    display_name: str = Field(min_length=1, max_length=50)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+            raise ValueError("メールアドレスの形式を確認してください")
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def valid_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("表示名を入力してください")
+        return value
+
+
+class LoginIn(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalized_email(cls, value: str) -> str:
+        return RegisterIn.valid_email(value)
 
 
 class SetIn(BaseModel):
@@ -45,3 +78,17 @@ class PredictIn(BaseModel):
     ate_before: bool = False
     n_sets: int = Field(default=3, ge=1, le=12)
     plan: Optional[PlanIn] = Field(default=None, description="評価したい時間配分(任意)")
+
+
+class ResearchQueryIn(BaseModel):
+    """医科学コンシェルジュへ渡す質問。長文や検索演算子の濫用を避ける。"""
+
+    question: str = Field(min_length=2, max_length=300, description="サウナ・水風呂等に関する医学論文の質問")
+
+    @field_validator("question")
+    @classmethod
+    def non_blank_question(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 2:
+            raise ValueError("質問を2文字以上で入力してください")
+        return value

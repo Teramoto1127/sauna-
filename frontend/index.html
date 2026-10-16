@@ -10,22 +10,71 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="top">
-    <div class="top-inner">
+  <section id="auth-screen" class="auth-screen" aria-label="ログインまたは新規登録">
+    <div class="auth-card">
       <div class="brand">
         <h1>ととのい黄金比</h1>
-        <p>サウナ・水風呂・外気浴の配分を記録して、自分に合う時間を見つける</p>
+        <p>自分だけの記録から、心地よい入り方を見つけよう</p>
+      </div>
+      <div class="auth-tabs" role="tablist" aria-label="認証方法">
+        <button type="button" class="auth-tab is-active" data-auth-view="login" role="tab" aria-selected="true">ログイン</button>
+        <button type="button" class="auth-tab" data-auth-view="register" role="tab" aria-selected="false">新規登録</button>
+      </div>
+      <form id="login-form" class="auth-form" novalidate>
+        <div class="field">
+          <label for="login-email">メールアドレス</label>
+          <input id="login-email" type="email" inputmode="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="login-password">パスワード</label>
+          <input id="login-password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required>
+        </div>
+        <p id="login-error" class="error" role="alert" hidden></p>
+        <button type="submit" class="btn primary">ログイン</button>
+      </form>
+      <form id="register-form" class="auth-form" novalidate hidden>
+        <div class="field">
+          <label for="register-name">表示名</label>
+          <input id="register-name" type="text" autocomplete="name" maxlength="50" required placeholder="例: ととのい太郎">
+        </div>
+        <div class="field">
+          <label for="register-email">メールアドレス</label>
+          <input id="register-email" type="email" inputmode="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="register-password">パスワード（8文字以上）</label>
+          <input id="register-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+        </div>
+        <p id="register-error" class="error" role="alert" hidden></p>
+        <button type="submit" class="btn primary">アカウントを作成する</button>
+      </form>
+      <p class="auth-note">記録・分析データはアカウントごとに保存されます。</p>
+    </div>
+  </section>
+
+  <header id="app-header" class="top" hidden>
+    <div class="top-inner">
+      <div class="top-head">
+        <div class="brand">
+          <h1>ととのい黄金比</h1>
+          <p>サウナ・水風呂・外気浴の配分を記録して、自分に合う時間を見つける</p>
+        </div>
+        <div class="account">
+          <span id="account-name"></span>
+          <button type="button" class="btn ghost" id="logout-button">ログアウト</button>
+        </div>
       </div>
       <nav class="tabs" aria-label="画面切り替え">
         <button type="button" class="tab is-active" data-view="record">記録</button>
         <button type="button" class="tab" data-view="golden">黄金比</button>
         <button type="button" class="tab" data-view="predict">予測</button>
         <button type="button" class="tab" data-view="dashboard">振り返り</button>
+        <button type="button" class="tab" data-view="research">医科学</button>
       </nav>
     </div>
   </header>
 
-  <main>
+  <main id="app-main" hidden>
     <!-- 記録 -->
     <section id="view-record" class="view" aria-label="記録">
       <div class="card timer" id="timer">
@@ -212,9 +261,31 @@
         <div id="calendar" class="calendar"></div>
       </div>
     </section>
+
+    <!-- 医学論文 RAG -->
+    <section id="view-research" class="view" aria-label="医科学コンシェルジュ" hidden>
+      <form id="research-form" class="card form" novalidate>
+        <div>
+          <h2>医科学コンシェルジュ</h2>
+          <p class="hint">PubMedの医学論文を検索し、質問との関連が高い順に根拠を表示します。回答は必ず原著・レビュー本文で確認してください。</p>
+        </div>
+        <div class="field">
+          <label for="research-question">知りたいこと</label>
+          <textarea id="research-question" rows="3" maxlength="300" required placeholder="例: サウナ後の水風呂は回復や心血管系にどんな研究がありますか？"></textarea>
+        </div>
+        <div class="research-examples" aria-label="質問例">
+          <button type="button" class="btn ghost research-example">サウナの安全性や禁忌について知りたい</button>
+          <button type="button" class="btn ghost research-example">サウナと睡眠に関する研究を知りたい</button>
+          <button type="button" class="btn ghost research-example">水風呂・冷水浴の回復に関する研究を知りたい</button>
+        </div>
+        <p class="error" id="research-error" role="alert" hidden></p>
+        <button type="submit" class="btn primary">論文を検索する</button>
+      </form>
+      <div id="research-result"></div>
+    </section>
   </main>
 
-  <footer class="foot">
+  <footer id="app-footer" class="foot" hidden>
     <div id="sample-controls"></div>
   </footer>
 

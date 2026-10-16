@@ -18,6 +18,7 @@ const FATIGUE_LABEL = { low: "低", mid: "中", high: "高" };
 
 const state = {
   view: "record",
+  user: null,
   includeSample: true,
   sessions: [], // 新しい順
   golden: null,
@@ -46,6 +47,7 @@ function todayStr() {
 async function api(path, options = {}) {
   const res = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     ...options,
   });
   if (!res.ok) {
@@ -55,6 +57,7 @@ async function api(path, options = {}) {
       if (typeof body.detail === "string") msg = body.detail;
       else if (Array.isArray(body.detail)) msg = "入力内容に誤りがあります。数値の範囲を確認してください。";
     } catch (_) { /* 本文なし */ }
+    if (res.status === 401) showAuthScreen();
     throw new Error(msg);
   }
   return res.status === 204 ? null : res.json();
@@ -76,6 +79,85 @@ function showError(id, message) {
   el.textContent = message || "";
   el.hidden = !message;
 }
+
+/* ---------- 認証 ---------- */
+
+function showAuthView(name) {
+  $$(".auth-tab").forEach((tab) => {
+    const active = tab.dataset.authView === name;
+    tab.classList.toggle("is-active", active);
+    tab.setAttribute("aria-selected", String(active));
+  });
+  $("#login-form").hidden = name !== "login";
+  $("#register-form").hidden = name !== "register";
+  showError("#login-error", "");
+  showError("#register-error", "");
+}
+
+function showAuthScreen() {
+  state.user = null;
+  Object.assign(state, { sessions: [], golden: null, dashboard: null });
+  $("#auth-screen").hidden = false;
+  $("#app-header").hidden = true;
+  $("#app-main").hidden = true;
+  $("#app-footer").hidden = true;
+}
+
+async function startAuthenticatedApp(user) {
+  state.user = user;
+  Object.assign(state, { sessions: [], golden: null, dashboard: null });
+  $("#account-name").textContent = user.display_name || user.email;
+  $("#auth-screen").hidden = true;
+  $("#app-header").hidden = false;
+  $("#app-main").hidden = false;
+  $("#app-footer").hidden = false;
+  showView("record");
+  await refresh();
+}
+
+async function submitAuth(path, body, errorId, button) {
+  showError(errorId, "");
+  button.disabled = true;
+  try {
+    const user = await api(path, { method: "POST", body: JSON.stringify(body) });
+    await startAuthenticatedApp(user);
+    const claimed = Number(user.claimed_legacy_sessions || 0);
+    toast(path === "/auth/register"
+      ? (claimed ? `アカウントを作成し、既存記録 ${claimed} 件を引き継ぎました` : "アカウントを作成しました")
+      : "ログインしました");
+  } catch (err) {
+    showError(errorId, err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$$(".auth-tab").forEach((tab) => tab.addEventListener("click", () => showAuthView(tab.dataset.authView)));
+
+$("#login-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitAuth("/auth/login", {
+    email: $("#login-email").value.trim(),
+    password: $("#login-password").value,
+  }, "#login-error", $("#login-form button[type=submit]"));
+});
+
+$("#register-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitAuth("/auth/register", {
+    display_name: $("#register-name").value.trim(),
+    email: $("#register-email").value.trim(),
+    password: $("#register-password").value,
+  }, "#register-error", $("#register-form button[type=submit]"));
+});
+
+$("#logout-button").addEventListener("click", async () => {
+  try { await api("/auth/logout", { method: "POST" }); }
+  catch (_) { /* サーバー側ですでに期限切れでも、画面はログアウトする */ }
+  showAuthScreen();
+  showAuthView("login");
+  $("#login-password").value = "";
+});
 
 function dots(score) {
   return `<span class="dots" aria-label="ととのい度 ${score}/5">${[1, 2, 3, 4, 5]
@@ -119,6 +201,7 @@ function renderActive() {
 $$(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
 
 async function refresh() {
+  if (!state.user) return;
   try {
     const [sessions, golden, dashboard] = await Promise.all([
       api(`/sessions?${qs()}`),
@@ -474,6 +557,60 @@ function renderPrediction(r) {
   });
 }
 
+/* ---------- 医学論文 RAG ---------- */
+
+$$('.research-example').forEach((button) => button.addEventListener('click', () => {
+  $('#research-question').value = button.textContent;
+  $('#research-question').focus();
+}));
+
+$('#research-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  showError('#research-error', '');
+  const question = $('#research-question').value.trim();
+  if (question.length < 2) return showError('#research-error', '質問を2文字以上で入力してください。');
+
+  const button = $('#research-form button[type=submit]');
+  button.disabled = true;
+  button.textContent = 'PubMed を検索中…';
+  try {
+    const result = await api('/research', { method: 'POST', body: JSON.stringify({ question }) });
+    renderResearch(result);
+  } catch (err) {
+    showError('#research-error', err.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '論文を検索する';
+  }
+});
+
+function renderResearch(result) {
+  const box = $('#research-result');
+  const cards = result.articles.map((article) => {
+    const types = article.publication_types.length
+      ? `<div class="paper-types">${article.publication_types.map((type) => `<span class="tag">${esc(type)}</span>`).join('')}</div>`
+      : '';
+    const meta = [article.journal, article.published, article.authors].filter(Boolean).map(esc).join(' · ');
+    return `<article class="card paper-card">
+      <div class="paper-head">
+        <span class="label">PMID ${esc(article.pmid)}</span>
+        ${types}
+      </div>
+      <h3>${esc(article.title)}</h3>
+      ${meta ? `<p class="meta">${meta}</p>` : ''}
+      <div class="paper-excerpt"><span class="label">抄録からの関連抜粋（原文）</span><p>${esc(article.abstract_excerpt)}</p></div>
+      <p><a class="paper-link" href="${esc(article.url)}" target="_blank" rel="noopener noreferrer">PubMedで原著・抄録を確認する <span aria-hidden="true">↗</span></a></p>
+    </article>`;
+  }).join('');
+
+  box.innerHTML = `<div class="card research-summary">
+      <h2>検索結果</h2>
+      <p>${esc(result.answer)}</p>
+      <p class="research-safety">${esc(result.safety_note)}</p>
+    </div>
+    ${cards || `<div class="card"><p class="empty">別の言い回しで試してください。例: 「sauna safety」「cold water immersion recovery」</p></div>`}`;
+}
+
 /* ---------- 振り返り ---------- */
 
 function setChartDefaults() {
@@ -627,10 +764,21 @@ function renderSampleControls() {
 
 /* ---------- 起動 ---------- */
 
+async function boot() {
+  showAuthScreen();
+  try {
+    const response = await fetch("/api/auth/me", { credentials: "same-origin" });
+    if (!response.ok) return;
+    await startAuthenticatedApp(await response.json());
+  } catch (_) {
+    // オフライン時もログイン画面を表示し、利用者が原因を確認できるようにする。
+  }
+}
+
 $("#f-date").value = todayStr();
 resetForm();
 updateTimerUi();
-refresh();
+boot();
 
 // 端末のテーマが変わったらグラフの色を取り直す
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderActive());
