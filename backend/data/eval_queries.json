@@ -1,0 +1,22 @@
+{
+  "_説明": "評価用の質問。relevant_pmids に、その質問に答える論文のPMIDを入れる(チームで手分けして付ける)。正解が空の質問は評価に使われない。PMIDは npm run corpus のあと、PubMedで論文を開いて確認する。",
+  "_付け方": "1) 質問に対して、論文のタイトル・抄録を読む 2) 質問の答えになる(関連が強い)論文だけ、PMIDを入れる 3) 迷う論文は入れない。2人以上で同じ質問に付けて、食い違いを話し合うと良い。",
+  "queries": [
+    { "id": "q01", "question": "サウナによく入る人は心臓病や死亡のリスクが低いのですか？", "relevant_pmids": [] },
+    { "id": "q02", "question": "サウナは血圧にどのような影響がありますか？", "relevant_pmids": [] },
+    { "id": "q03", "question": "高血圧の人はサウナに入っても安全ですか？", "relevant_pmids": [] },
+    { "id": "q04", "question": "サウナと睡眠の質の関係を知りたい", "relevant_pmids": [] },
+    { "id": "q05", "question": "サウナのあとに自律神経はどう変化しますか？", "relevant_pmids": [] },
+    { "id": "q06", "question": "サウナに入ってはいけない人や禁忌は？", "relevant_pmids": [] },
+    { "id": "q07", "question": "サウナ中の飲酒は危険ですか？", "relevant_pmids": [] },
+    { "id": "q08", "question": "水風呂に入ると心臓に負担がかかりますか？", "relevant_pmids": [] },
+    { "id": "q09", "question": "冷水に入ったときの寒冷ショックとは？", "relevant_pmids": [] },
+    { "id": "q10", "question": "水風呂に繰り返し入ると体は慣れますか？", "relevant_pmids": [] },
+    { "id": "q11", "question": "サウナの発汗で失われる水分や電解質は？", "relevant_pmids": [] },
+    { "id": "q12", "question": "サウナはうつやストレスに効果がありますか？", "relevant_pmids": [] },
+    { "id": "q13", "question": "妊娠中にサウナに入ってもよいですか？", "relevant_pmids": [] },
+    { "id": "q14", "question": "心不全の人にサウナは影響しますか？", "relevant_pmids": [] },
+    { "id": "q15", "question": "冷水浴は運動後の回復に役立ちますか？", "relevant_pmids": [] },
+    { "id": "q16", "question": "サウナの健康効果をまとめたレビュー論文は？", "relevant_pmids": [] }
+  ]
+}

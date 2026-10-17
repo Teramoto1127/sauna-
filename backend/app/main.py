@@ -13,7 +13,7 @@ import sqlite3
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.staticfiles import StaticFiles
 
-from . import analysis, auth, db, ml, research, seed
+from . import analysis, auth, db, ml, research, retrieval, seed
 from .schemas import LoginIn, PredictIn, RegisterIn, ResearchQueryIn, SessionIn
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -170,6 +170,15 @@ def research_papers(body: ResearchQueryIn, user: dict = Depends(_authenticated_u
     try:
         return research.search(body.question.strip())
     except research.ResearchUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/research/local")
+def research_local(body: ResearchQueryIn, user: dict = Depends(_authenticated_user)) -> dict:
+    """保存済みの論文(npm run corpus で作る)を、自前の TF-IDF 検索で探す。通信は不要。"""
+    try:
+        return retrieval.search(body.question.strip())
+    except retrieval.CorpusMissing as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 

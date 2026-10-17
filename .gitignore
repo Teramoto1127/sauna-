@@ -9,3 +9,7 @@ node_modules/
 # ローカルの記録データ(個人の記録なのでリポジトリには含めない)
 backend/sauna.db
 *.db
+
+# PubMed から保存した抄録(出版社に著作権があるため、各自で npm run corpus して作る)
+backend/data/corpus.jsonl
+backend/data/corpus.meta.json

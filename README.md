@@ -25,6 +25,23 @@
 | 医科学 | PubMed を検索し、質問に近い論文の書誌情報・抄録抜粋・PMIDリンクを提示する出典付きRAG |
 | ログイン | メールアドレスとパスワードによる新規登録・ログイン。記録、分析、予測、サンプルをアカウントごとに分離 |
 
+## 自前の論文検索モデルと評価
+
+医科学タブの検索は、PubMed に任せる方式(`/api/research`)に加えて、**自分たちで作った検索モデル**(`/api/research/local`)を用意しています。
+あらかじめ保存した論文の抄録を TF-IDF で索引化し、日本語の質問を英語の検索語に変換して、近さの順に並べます(`backend/app/retrieval.py`)。
+
+```bash
+npm run corpus   # PubMed から抄録を集めて保存(要ネット接続・数分)。backend/data/corpus.jsonl ができる
+npm run eval     # 正解データを使って、検索方式どうしを数字で比べる
+```
+
+1. `npm run corpus` で論文を保存します。抄録の著作権は出版社にあるため、保存したファイルは Git に入れません。各自のパソコンで作ります。
+2. `backend/data/eval_queries.json` の `relevant_pmids` に、質問ごとの正解の論文(PMID)を入れます。チームで手分けして、論文を読んで付けてください。
+3. `npm run eval` で、キーワード一致(基準)と TF-IDF を Hit@1・Recall@5・MRR で比較します。正解ありの質問が 20 件未満のときは、差が偶然の可能性があると表示されます。
+
+保存した論文を増やしたいときは、`backend/app/build_corpus.py` の `SEED_QUERIES` に PubMed の検索式を足します。
+日本語の質問を英語に直す辞書は、`backend/app/retrieval.py` の `EXTRA_EXPANSIONS` に足せます。
+
 ## 起動方法
 
 Node.js 18 以上と、Python 3.10 以上が必要です。予測モデルが Python(scikit-learn)で動くためです。
@@ -92,6 +109,7 @@ scripts/          npm run setup / dev / test の中身(Node.js、追加の npm i
 | GET | `/api/analysis/dashboard` | グラフ・カレンダー用の集計 |
 | POST | `/api/predict` | 今日のコンディションから最適な配分を予測 |
 | POST | `/api/research` | PubMedを使った医学論文RAG（`{"question": "..."}`） |
+| POST | `/api/research/local` | 保存済み論文を自前のTF-IDFで検索(通信不要。先に `npm run corpus`) |
 | POST | `/api/auth/register` | 新規登録（ログインCookieを設定） |
 | POST | `/api/auth/login` / `/api/auth/logout` | ログイン / ログアウト |
 | GET | `/api/auth/me` | ログイン中のユーザー情報 |

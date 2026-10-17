@@ -7,7 +7,9 @@
     "setup": "node scripts/setup.js",
     "dev": "node scripts/dev.js",
     "start": "node scripts/dev.js",
-    "test": "node scripts/test.js"
+    "test": "node scripts/test.js",
+    "corpus": "node scripts/pymodule.js app.build_corpus",
+    "eval": "node scripts/pymodule.js app.evaluate"
   },
   "engines": {
     "node": ">=18"
