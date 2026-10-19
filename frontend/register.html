@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>新規登録 | ととのい黄金比</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=DM+Mono:wght@500&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-body">
+  <div class="split">
+    <section class="hero" aria-label="ととのい黄金比について">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="hero-brand"><svg width="26" height="58" viewBox="0 0 30 68" aria-hidden="true"><rect x="10" y="2" width="10" height="46" rx="5" fill="none" stroke="#F2B35C" stroke-width="2"/><rect x="13" y="20" width="4" height="30" rx="2" fill="#E8743B"/><circle cx="15" cy="54" r="10" fill="#E8743B" stroke="#F2B35C" stroke-width="2"/></svg><span>ととのい黄金比</span></div>
+      <div class="hero-copy">
+        <h1>記録するほど、<br>あなたに合う<br>ととのいが見えてくる。</h1>
+        <p>最初は気軽に、サウナに行った日のことを残してみてください。記録が20回たまると、体調に合わせた時間の提案がはじまります。</p>
+      </div>
+      <div class="hero-foot"><p>睡眠や体調など、健康に関する記録は、あなただけが見られます。</p></div>
+    </section>
+    <section class="formside" aria-label="新規登録">
+      <form id="register-form" class="auth-box" novalidate>
+        <div class="auth-head">
+          <h2>はじめまして</h2>
+          <p>1分ほどで、記録をはじめられます。</p>
+        </div>
+        <div class="field">
+          <label for="register-name">呼ばれたい名前</label>
+          <input id="register-name" type="text" autocomplete="name" maxlength="50" required placeholder="例: ととのい太郎">
+          <span class="help">ニックネームでも大丈夫です。画面のあいさつに使います。</span>
+        </div>
+        <div class="field">
+          <label for="register-email">メールアドレス</label>
+          <input id="register-email" type="email" inputmode="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="register-password">パスワード</label>
+          <input id="register-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+          <span class="help">8文字以上で決めてください。</span>
+        </div>
+        <p id="register-error" class="error" role="alert" hidden></p>
+        <button type="submit" class="btn primary big">登録してはじめる</button>
+        <p class="auth-switch">すでにアカウントがある方は <a href="login.html">ログイン</a></p>
+      </form>
+    </section>
+  </div>
+  <script src="auth.js"></script>
+</body>
+</html>

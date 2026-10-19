@@ -6,80 +6,45 @@
   <title>ととのい黄金比</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=DM+Mono:wght@500&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <section id="auth-screen" class="auth-screen" aria-label="ログインまたは新規登録">
-    <div class="auth-card">
-      <div class="brand">
-        <h1>ととのい黄金比</h1>
-        <p>自分だけの記録から、心地よい入り方を見つけよう</p>
-      </div>
-      <div class="auth-tabs" role="tablist" aria-label="認証方法">
-        <button type="button" class="auth-tab is-active" data-auth-view="login" role="tab" aria-selected="true">ログイン</button>
-        <button type="button" class="auth-tab" data-auth-view="register" role="tab" aria-selected="false">新規登録</button>
-      </div>
-      <form id="login-form" class="auth-form" novalidate>
-        <div class="field">
-          <label for="login-email">メールアドレス</label>
-          <input id="login-email" type="email" inputmode="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
-        </div>
-        <div class="field">
-          <label for="login-password">パスワード</label>
-          <input id="login-password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required>
-        </div>
-        <p id="login-error" class="error" role="alert" hidden></p>
-        <button type="submit" class="btn primary">ログイン</button>
-      </form>
-      <form id="register-form" class="auth-form" novalidate hidden>
-        <div class="field">
-          <label for="register-name">表示名</label>
-          <input id="register-name" type="text" autocomplete="name" maxlength="50" required placeholder="例: ととのい太郎">
-        </div>
-        <div class="field">
-          <label for="register-email">メールアドレス</label>
-          <input id="register-email" type="email" inputmode="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
-        </div>
-        <div class="field">
-          <label for="register-password">パスワード（8文字以上）</label>
-          <input id="register-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
-        </div>
-        <p id="register-error" class="error" role="alert" hidden></p>
-        <button type="submit" class="btn primary">アカウントを作成する</button>
-      </form>
-      <p class="auth-note">記録・分析データはアカウントごとに保存されます。</p>
-    </div>
-  </section>
-
-  <header id="app-header" class="top" hidden>
-    <div class="top-inner">
-      <div class="top-head">
-        <div class="brand">
-          <h1>ととのい黄金比</h1>
-          <p>サウナ・水風呂・外気浴の配分を記録して、自分に合う時間を見つける</p>
-        </div>
-        <div class="account">
-          <span id="account-name"></span>
-          <button type="button" class="btn ghost" id="logout-button">ログアウト</button>
-        </div>
+<body class="app-body">
+  <div id="app" class="app" hidden>
+    <aside class="side">
+      <div class="side-brand">
+        <svg width="18" height="40" viewBox="0 0 30 68" aria-hidden="true"><rect x="10" y="2" width="10" height="46" rx="5" fill="none" stroke="#F2B35C" stroke-width="3"/><rect x="13" y="20" width="4" height="30" rx="2" fill="#E8743B"/><circle cx="15" cy="54" r="10" fill="#E8743B" stroke="#F2B35C" stroke-width="3"/></svg>
+        <span>ととのい黄金比</span>
       </div>
       <nav class="tabs" aria-label="画面切り替え">
-        <button type="button" class="tab is-active" data-view="record">記録</button>
-        <button type="button" class="tab" data-view="golden">黄金比</button>
-        <button type="button" class="tab" data-view="predict">予測</button>
-        <button type="button" class="tab" data-view="dashboard">振り返り</button>
-        <button type="button" class="tab" data-view="research">医科学</button>
+        <button type="button" class="tab is-active" data-view="record"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18 10l-4-4L4 16zM13 7l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>記録する</span></button>
+        <button type="button" class="tab" data-view="golden"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>黄金比</span></button>
+        <button type="button" class="tab" data-view="predict"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l2.2 5.8L20 12l-5.8 2.2L12 20l-2.2-5.8L4 12l5.8-2.2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>予測</span></button>
+        <button type="button" class="tab" data-view="dashboard"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-9M12 20V5M19 20v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>振り返り</span></button>
+        <button type="button" class="tab" data-view="research"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6a2 2 0 012 2v13a2 2 0 00-2-2H4zM20 5h-6a2 2 0 00-2 2v13a2 2 0 012-2h6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>医科学</span></button>
       </nav>
-    </div>
-  </header>
+      <div class="me">
+        <span class="avatar" id="account-avatar" aria-hidden="true"></span>
+        <div class="me-text">
+          <span id="account-name"></span>
+          <button type="button" class="linkish" id="logout-button">ログアウト</button>
+        </div>
+      </div>
+    </aside>
 
-  <main id="app-main" hidden>
+    <div class="content">
+  <main id="app-main">
     <!-- 記録 -->
     <section id="view-record" class="view" aria-label="記録">
+      <header class="page-head">
+        <h1 id="greeting">おかえりなさい。</h1>
+        <p id="today-line">今日の体調やサウナの様子を、ゆっくり記録していきましょう。</p>
+      </header>
+      <div class="cols">
+      <div class="col-main">
       <div class="card timer" id="timer">
         <div class="timer-head">
-          <span class="label">ストップウォッチ</span>
+          <span class="label">時間を測る</span>
           <span class="timer-phase" id="timer-phase">待機中</span>
         </div>
         <div class="timer-display" id="timer-display" aria-live="off">00:00</div>
@@ -92,7 +57,7 @@
       </div>
 
       <form id="session-form" class="card form" novalidate>
-        <h2>今日のセッション</h2>
+        <h2>今日のサウナ</h2>
 
         <div class="grid two">
           <div class="field">
@@ -123,11 +88,11 @@
 
         <div class="grid two">
           <fieldset class="field seg">
-            <legend>疲労度</legend>
-            <div class="seg-row">
-              <label><input type="radio" name="fatigue" value="low"><span>低</span></label>
-              <label><input type="radio" name="fatigue" value="mid" checked><span>中</span></label>
-              <label><input type="radio" name="fatigue" value="high"><span>高</span></label>
+            <legend>今日の調子は?</legend>
+            <div class="seg-row faces">
+              <label><input type="radio" name="fatigue" value="low"><span><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8.8" cy="10.5" r="1.2" fill="currentColor"/><circle cx="15.2" cy="10.5" r="1.2" fill="currentColor"/><path d="M8 14.5c1.3 2.2 6.7 2.2 8 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>元気いっぱい</span></label>
+              <label><input type="radio" name="fatigue" value="mid" checked><span><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8.8" cy="10.5" r="1.2" fill="currentColor"/><circle cx="15.2" cy="10.5" r="1.2" fill="currentColor"/><path d="M8.5 15.5h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>ふつう</span></label>
+              <label><input type="radio" name="fatigue" value="high"><span><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.3 10.5h3M13.7 10.5h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8.5 16.8c1.5-1.6 5.5-1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>お疲れ気味</span></label>
             </div>
           </fieldset>
           <fieldset class="field seg">
@@ -148,7 +113,7 @@
         </div>
 
         <fieldset class="field seg">
-          <legend>ととのい度</legend>
+          <legend>どれくらい、ととのいましたか?</legend>
           <div class="seg-row score-row" id="score-row">
             <label><input type="radio" name="score" value="1"><span>1</span></label>
             <label><input type="radio" name="score" value="2"><span>2</span></label>
@@ -156,21 +121,26 @@
             <label><input type="radio" name="score" value="4"><span>4</span></label>
             <label><input type="radio" name="score" value="5"><span>5</span></label>
           </div>
-          <div class="score-scale"><span>いまいち</span><span>ととのった</span></div>
+          <div class="score-scale"><span>いまいち</span><span>最高にととのった</span></div>
         </fieldset>
 
         <div class="field">
-          <label for="f-note">メモ (任意)</label>
+          <label for="f-note">ひとことメモ(あとで見返せます)</label>
           <textarea id="f-note" rows="2" maxlength="500" placeholder="水風呂が気持ちよかった、など"></textarea>
         </div>
 
         <p class="error" id="form-error" role="alert" hidden></p>
-        <button type="submit" class="btn primary">記録する</button>
+        <button type="submit" class="btn primary">今日の記録を保存する</button>
       </form>
 
+      </div>
+      <div class="col-side">
+        <section class="card" id="next-card" aria-label="予測までの進み具合"></section>
       <div class="card">
         <h2>最近の記録</h2>
         <div id="recent"></div>
+      </div>
+      </div>
       </div>
     </section>
 
@@ -200,11 +170,11 @@
         </div>
         <div class="grid three">
           <fieldset class="field seg">
-            <legend>疲労度</legend>
-            <div class="seg-row">
-              <label><input type="radio" name="p-fatigue" value="low"><span>低</span></label>
-              <label><input type="radio" name="p-fatigue" value="mid" checked><span>中</span></label>
-              <label><input type="radio" name="p-fatigue" value="high"><span>高</span></label>
+            <legend>今日の調子</legend>
+            <div class="seg-row faces">
+              <label><input type="radio" name="p-fatigue" value="low"><span><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8.8" cy="10.5" r="1.2" fill="currentColor"/><circle cx="15.2" cy="10.5" r="1.2" fill="currentColor"/><path d="M8 14.5c1.3 2.2 6.7 2.2 8 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>元気いっぱい</span></label>
+              <label><input type="radio" name="p-fatigue" value="mid" checked><span><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8.8" cy="10.5" r="1.2" fill="currentColor"/><circle cx="15.2" cy="10.5" r="1.2" fill="currentColor"/><path d="M8.5 15.5h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>ふつう</span></label>
+              <label><input type="radio" name="p-fatigue" value="high"><span><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.3 10.5h3M13.7 10.5h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8.5 16.8c1.5-1.6 5.5-1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>お疲れ気味</span></label>
             </div>
           </fieldset>
           <fieldset class="field seg">
@@ -285,9 +255,11 @@
     </section>
   </main>
 
-  <footer id="app-footer" class="foot" hidden>
+  <footer id="app-footer" class="foot">
     <div id="sample-controls"></div>
   </footer>
+    </div>
+  </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 

@@ -166,6 +166,11 @@ def test_frontend_is_served(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "ととのい黄金比" in r.text
-    assert "ログイン" in r.text
+    assert 'id="logout-button"' in r.text
     assert client.get("/app.js").status_code == 200
+    assert client.get("/auth.js").status_code == 200
+    login = client.get("/login.html")
+    assert login.status_code == 200 and 'id="login-form"' in login.text
+    register = client.get("/register.html")
+    assert register.status_code == 200 and 'id="register-form"' in register.text
     assert client.get("/api/health").json() == {"status": "ok"}

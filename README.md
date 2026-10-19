@@ -95,7 +95,8 @@ backend/
     seed.py       サンプルデータの生成
   tests/          pytest
 frontend/
-  index.html  style.css  app.js   素の HTML/CSS/JS(Chart.js のみ CDN)
+  index.html  アプリ本体(サイドバー付き)  login.html / register.html  ログイン・新規登録(別ページ)
+  style.css  app.js  auth.js   素の HTML/CSS/JS(Chart.js のみ CDN)
 scripts/          npm run setup / dev / test の中身(Node.js、追加の npm install は不要)
 ```
 

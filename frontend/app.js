@@ -80,83 +80,48 @@ function showError(id, message) {
   el.hidden = !message;
 }
 
-/* ---------- 認証 ---------- */
-
-function showAuthView(name) {
-  $$(".auth-tab").forEach((tab) => {
-    const active = tab.dataset.authView === name;
-    tab.classList.toggle("is-active", active);
-    tab.setAttribute("aria-selected", String(active));
-  });
-  $("#login-form").hidden = name !== "login";
-  $("#register-form").hidden = name !== "register";
-  showError("#login-error", "");
-  showError("#register-error", "");
-}
+/* ---------- 認証(ログイン/登録は login.html / register.html) ---------- */
 
 function showAuthScreen() {
   state.user = null;
   Object.assign(state, { sessions: [], golden: null, dashboard: null });
-  $("#auth-screen").hidden = false;
-  $("#app-header").hidden = true;
-  $("#app-main").hidden = true;
-  $("#app-footer").hidden = true;
+  location.replace("/login.html");
+}
+
+function greetingFor(user) {
+  const name = (user.display_name || user.email || "").trim();
+  const h = new Date().getHours();
+  const hello = h < 5 ? "こんばんは" : h < 11 ? "おはようございます" : h < 18 ? "こんにちは" : "こんばんは";
+  return name ? `${hello}、${name}さん。` : `${hello}。`;
+}
+
+function todayLine() {
+  const d = new Date();
+  const w = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+  return `今日は${d.getMonth() + 1}月${d.getDate()}日(${w})。体調はどうですか? 教えてもらえれば、いまの自分に合う時間をいっしょに探します。`;
 }
 
 async function startAuthenticatedApp(user) {
   state.user = user;
   Object.assign(state, { sessions: [], golden: null, dashboard: null });
-  $("#account-name").textContent = user.display_name || user.email;
-  $("#auth-screen").hidden = true;
-  $("#app-header").hidden = false;
-  $("#app-main").hidden = false;
-  $("#app-footer").hidden = false;
+  const name = user.display_name || user.email;
+  $("#account-name").textContent = name;
+  $("#account-avatar").textContent = Array.from(name)[0] || "";
+  $("#greeting").textContent = greetingFor(user);
+  $("#today-line").textContent = todayLine();
+  $("#app").hidden = false;
   showView("record");
   await refresh();
-}
-
-async function submitAuth(path, body, errorId, button) {
-  showError(errorId, "");
-  button.disabled = true;
   try {
-    const user = await api(path, { method: "POST", body: JSON.stringify(body) });
-    await startAuthenticatedApp(user);
-    const claimed = Number(user.claimed_legacy_sessions || 0);
-    toast(path === "/auth/register"
-      ? (claimed ? `アカウントを作成し、既存記録 ${claimed} 件を引き継ぎました` : "アカウントを作成しました")
-      : "ログインしました");
-  } catch (err) {
-    showError(errorId, err.message);
-  } finally {
-    button.disabled = false;
-  }
+    const flash = sessionStorage.getItem("sauna.flash");
+    if (flash) { sessionStorage.removeItem("sauna.flash"); toast(flash); }
+  } catch (_) { /* 表示できなくても続行 */ }
 }
-
-$$(".auth-tab").forEach((tab) => tab.addEventListener("click", () => showAuthView(tab.dataset.authView)));
-
-$("#login-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  submitAuth("/auth/login", {
-    email: $("#login-email").value.trim(),
-    password: $("#login-password").value,
-  }, "#login-error", $("#login-form button[type=submit]"));
-});
-
-$("#register-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  submitAuth("/auth/register", {
-    display_name: $("#register-name").value.trim(),
-    email: $("#register-email").value.trim(),
-    password: $("#register-password").value,
-  }, "#register-error", $("#register-form button[type=submit]"));
-});
 
 $("#logout-button").addEventListener("click", async () => {
   try { await api("/auth/logout", { method: "POST" }); }
   catch (_) { /* サーバー側ですでに期限切れでも、画面はログアウトする */ }
   showAuthScreen();
-  showAuthView("login");
-  $("#login-password").value = "";
 });
 
 function dots(score) {
@@ -366,10 +331,29 @@ function renderFacilityList() {
 
 /* ---------- 最近の記録 ---------- */
 
+const MIN_SESSIONS = 20; // backend/app/ml.py の MIN_SESSIONS と同じ
+
+function renderNextCard() {
+  const own = state.sessions.filter((x) => !x.is_sample).length;
+  const left = Math.max(0, MIN_SESSIONS - own);
+  const pct = Math.min(100, Math.round((own / MIN_SESSIONS) * 100));
+  const lead = left > 0
+    ? `あなたの記録があと <strong class="em">${left}回</strong> たまると、その日の体調に合わせた時間をお伝えできます。`
+    : "記録が十分にたまりました。「予測」から、今日の体調に合わせた時間を探せます。";
+  $("#next-card").innerHTML = `<h2>あなたに合う時間の提案</h2>
+    <p class="meta lead">${lead}</p>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${MIN_SESSIONS}" aria-valuenow="${Math.min(own, MIN_SESSIONS)}" aria-label="記録の数"><i style="width:${pct}%"></i></div>
+    <span class="num-small">${Math.min(own, MIN_SESSIONS)} / ${MIN_SESSIONS} 回</span>
+    <button type="button" class="btn ghost" data-go="${left > 0 ? "golden" : "predict"}">${left > 0 ? "黄金比を見る" : "予測を試す"}</button>`;
+  const go = $("#next-card [data-go]");
+  go.addEventListener("click", () => showView(go.dataset.go));
+}
+
 function renderRecent() {
+  renderNextCard();
   const box = $("#recent");
   if (state.sessions.length === 0) {
-    box.innerHTML = `<p class="empty">まだ記録がありません。上のフォームから最初のセッションを記録するか、ページ下の「サンプルを追加」で動作を試せます。</p>`;
+    box.innerHTML = `<p class="empty">まだ記録がありません。左のフォームから最初のセッションを記録するか、ページ下の「サンプルを追加」で動作を試せます。</p>`;
     return;
   }
   box.innerHTML = state.sessions.slice(0, 8).map((s) => {
@@ -765,13 +749,13 @@ function renderSampleControls() {
 /* ---------- 起動 ---------- */
 
 async function boot() {
-  showAuthScreen();
   try {
     const response = await fetch("/api/auth/me", { credentials: "same-origin" });
-    if (!response.ok) return;
+    if (!response.ok) { showAuthScreen(); return; }
     await startAuthenticatedApp(await response.json());
   } catch (_) {
-    // オフライン時もログイン画面を表示し、利用者が原因を確認できるようにする。
+    $("#app").hidden = false;
+    toast("サーバーに接続できません。起動しているか確認してください。");
   }
 }
 
