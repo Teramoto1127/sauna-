@@ -57,7 +57,8 @@
       </div>
 
       <form id="session-form" class="card form" novalidate>
-        <h2>今日のサウナ</h2>
+        <h2 id="form-title">今日のサウナ</h2>
+        <p class="edit-banner" id="edit-banner" hidden>過去の記録を編集中です。 <button type="button" class="linkish" id="cancel-edit">編集をやめる</button></p>
 
         <div class="grid two">
           <div class="field">
@@ -130,7 +131,16 @@
         </div>
 
         <p class="error" id="form-error" role="alert" hidden></p>
-        <button type="submit" class="btn primary">今日の記録を保存する</button>
+        <div class="warn-box" id="form-warn" role="alert" hidden>
+          <strong>入力を確認してください</strong>
+          <ul id="form-warn-list"></ul>
+          <p class="hint">間違いでなければ、そのまま保存できます。</p>
+          <div class="warn-actions">
+            <button type="button" class="btn ghost" id="warn-fix">入力を直す</button>
+            <button type="button" class="btn primary" id="warn-save">このまま保存する</button>
+          </div>
+        </div>
+        <button type="submit" class="btn primary" id="submit-btn">今日の記録を保存する</button>
       </form>
 
       </div>

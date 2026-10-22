@@ -174,3 +174,56 @@ def test_frontend_is_served(client):
     register = client.get("/register.html")
     assert register.status_code == 200 and 'id="register-form"' in register.text
     assert client.get("/api/health").json() == {"status": "ok"}
+
+
+# ---- 入力ミスの警告と編集 -----------------------------------------------------
+
+
+def test_implausible_values_need_confirmation(client):
+    bad = payload(sets=[{"sauna_min": 95, "water_min": 1, "rest_min": 10}])  # 95は範囲外(422)
+    assert client.post("/api/sessions", json=bad).status_code == 422
+
+    odd = payload(water_temp=30, sets=[{"sauna_min": 9, "water_min": 12, "rest_min": 10}])
+    r = client.post("/api/sessions", json=odd)
+    assert r.status_code == 409
+    warnings = r.json()["detail"]["warnings"]
+    assert any("水風呂の温度" in w for w in warnings)
+    assert any("水風呂" in w and "長すぎ" in w for w in warnings)
+    assert client.get("/api/sessions").json() == []  # 保存されていない
+
+    ok = client.post("/api/sessions?confirmed=true", json=odd)
+    assert ok.status_code == 201
+    assert len(client.get("/api/sessions").json()) == 1
+
+
+def test_normal_values_have_no_warnings(client):
+    assert client.post("/api/sessions", json=payload()).status_code == 201
+
+
+def test_future_date_is_rejected(client):
+    assert client.post("/api/sessions?confirmed=true", json=payload(visited_on="2099-01-01")).status_code == 422
+
+
+def test_update_session_replaces_sets(client):
+    sid = client.post("/api/sessions", json=payload()).json()["id"]
+    changed = payload(score=2, facility="別の施設", sets=[{"sauna_min": 7, "water_min": 1, "rest_min": 9}])
+    assert client.put(f"/api/sessions/{sid}", json=changed).status_code == 200
+    (s,) = client.get("/api/sessions").json()
+    assert s["score"] == 2 and s["facility"] == "別の施設"
+    assert s["sets"] == [{"set_no": 1, "sauna_min": 7.0, "water_min": 1.0, "rest_min": 9.0}]
+
+
+def test_update_checks_warnings_and_missing(client):
+    sid = client.post("/api/sessions", json=payload()).json()["id"]
+    assert client.put(f"/api/sessions/{sid}", json=payload(sleep_hours=0.5)).status_code == 409
+    assert client.get("/api/sessions").json()[0]["sleep_hours"] == 7  # 変わっていない
+    assert client.put("/api/sessions/9999", json=payload()).status_code == 404
+
+
+def test_cannot_update_other_users_session(client):
+    sid = client.post("/api/sessions", json=payload()).json()["id"]
+    client.post("/api/auth/logout")
+    other = client.post("/api/auth/register", json={
+        "email": "other@example.com", "display_name": "別の人", "password": "another-pass-77"})
+    assert other.status_code == 201
+    assert client.put(f"/api/sessions/{sid}", json=payload(score=1)).status_code == 404

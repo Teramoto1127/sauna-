@@ -100,12 +100,16 @@ frontend/
 scripts/          npm run setup / dev / test の中身(Node.js、追加の npm install は不要)
 ```
 
+## 入力ミスの警告
+
+範囲外の値は 422 で拒否します(未来の日付も)。範囲内でも打ち間違いが疑われる値(サウナ室60〜110℃・水風呂4〜25℃・睡眠2〜14時間の外、1セットのサウナ20分超・水風呂5分超・休憩60分超、サウナ0分、1年以上前の日付)は、POST/PUT が 409 で警告の一覧を返して止めます。確認のうえ `?confirmed=true` を付けると保存できます。判定は `backend/app/checks.py` にまとめています。
+
 ## API
 
 | メソッド | パス | 内容 |
 |---|---|---|
 | GET / POST | `/api/sessions` | 記録の一覧(新しい順)/ 追加 |
-| DELETE | `/api/sessions/{id}` | 記録の削除 |
+| PUT / DELETE | `/api/sessions/{id}` | 記録の編集(セットごと置き換え)/ 削除 |
 | GET | `/api/analysis/golden` | 黄金比(全体・水風呂温度別・施設別) |
 | GET | `/api/analysis/dashboard` | グラフ・カレンダー用の集計 |
 | POST | `/api/predict` | 今日のコンディションから最適な配分を予測 |

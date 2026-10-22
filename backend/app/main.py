@@ -13,7 +13,7 @@ import sqlite3
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.staticfiles import StaticFiles
 
-from . import analysis, auth, db, ml, research, retrieval, seed
+from . import analysis, auth, checks, db, ml, research, retrieval, seed
 from .schemas import LoginIn, PredictIn, RegisterIn, ResearchQueryIn, SessionIn
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -102,10 +102,29 @@ def list_sessions(include_sample: bool = True, user: dict = Depends(_authenticat
     return list(reversed(sessions))
 
 
+def _require_confirmation(data: dict, confirmed: bool) -> None:
+    """打ち間違いの疑いがあれば 409 で止める。confirmed=true なら通す。"""
+    found = checks.warnings_for(data)
+    if found and not confirmed:
+        raise HTTPException(status_code=409, detail={"warnings": found})
+
+
 @app.post("/api/sessions", status_code=201)
-def create_session(body: SessionIn, user: dict = Depends(_authenticated_user)) -> dict:
+def create_session(body: SessionIn, confirmed: bool = False, user: dict = Depends(_authenticated_user)) -> dict:
+    data = body.model_dump(mode="json")
+    _require_confirmation(data, confirmed)
     with db.connect() as conn:
-        session_id = db.insert_session(conn, body.model_dump(mode="json"), user["id"])
+        session_id = db.insert_session(conn, data, user["id"])
+    return {"id": session_id}
+
+
+@app.put("/api/sessions/{session_id}")
+def update_session(session_id: int, body: SessionIn, confirmed: bool = False, user: dict = Depends(_authenticated_user)) -> dict:
+    data = body.model_dump(mode="json")
+    _require_confirmation(data, confirmed)
+    with db.connect() as conn:
+        if not db.update_session(conn, session_id, data, user["id"]):
+            raise HTTPException(status_code=404, detail="記録が見つかりません")
     return {"id": session_id}
 
 

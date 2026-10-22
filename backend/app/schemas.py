@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 import re
 from typing import Literal, Optional
 
@@ -60,6 +60,14 @@ class SessionIn(BaseModel):
     score: int = Field(ge=1, le=5, description="ととのい度(1〜5)")
     note: str = Field(default="", max_length=500)
     sets: list[SetIn] = Field(min_length=1, max_length=12)
+
+    @field_validator("visited_on")
+    @classmethod
+    def not_future(cls, value: date) -> date:
+        # 時差で「今日」が1日ずれても通るよう、明日までは許す
+        if value > date.today() + timedelta(days=1):
+            raise ValueError("未来の日付は記録できません")
+        return value
 
 
 class PlanIn(BaseModel):

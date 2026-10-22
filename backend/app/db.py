@@ -183,6 +183,41 @@ def fetch_sessions(conn: sqlite3.Connection, user_id: int, include_sample: bool 
     ]
 
 
+def update_session(conn: sqlite3.Connection, session_id: int, data: dict, user_id: int) -> bool:
+    """自分の記録を丸ごと置き換える(セットも作り直す)。is_sample は変えない。"""
+    cur = conn.execute(
+        """
+        UPDATE sessions SET visited_on = ?, facility = ?, sauna_temp = ?, water_temp = ?,
+               sleep_hours = ?, fatigue = ?, ate_before = ?, score = ?, note = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (
+            str(data["visited_on"]),
+            data.get("facility", ""),
+            data.get("sauna_temp"),
+            data.get("water_temp"),
+            data.get("sleep_hours"),
+            data.get("fatigue", "mid"),
+            1 if data.get("ate_before") else 0,
+            data["score"],
+            data.get("note", ""),
+            session_id,
+            user_id,
+        ),
+    )
+    if cur.rowcount == 0:
+        return False
+    conn.execute("DELETE FROM sets WHERE session_id = ?", (session_id,))
+    conn.executemany(
+        "INSERT INTO sets (session_id, set_no, sauna_min, water_min, rest_min) VALUES (?, ?, ?, ?, ?)",
+        [
+            (session_id, i, x["sauna_min"], x["water_min"], x["rest_min"])
+            for i, x in enumerate(data["sets"], start=1)
+        ],
+    )
+    return True
+
+
 def delete_session(conn: sqlite3.Connection, session_id: int, user_id: int) -> bool:
     cur = conn.execute("DELETE FROM sessions WHERE id = ? AND user_id = ?", (session_id, user_id))
     return cur.rowcount > 0

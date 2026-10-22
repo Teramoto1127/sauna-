@@ -19,6 +19,7 @@ const FATIGUE_LABEL = { low: "低", mid: "中", high: "高" };
 const state = {
   view: "record",
   user: null,
+  editingId: null,
   includeSample: true,
   sessions: [], // 新しい順
   golden: null,
@@ -52,11 +53,17 @@ async function api(path, options = {}) {
   });
   if (!res.ok) {
     let msg = "通信に失敗しました。もう一度お試しください。";
+    let warned = null;
     try {
       const body = await res.json();
-      if (typeof body.detail === "string") msg = body.detail;
+      if (res.status === 409 && body.detail && Array.isArray(body.detail.warnings)) {
+        const err = new Error("入力内容を確認してください。");
+        err.warnings = body.detail.warnings;
+        warned = err;
+      } else if (typeof body.detail === "string") msg = body.detail;
       else if (Array.isArray(body.detail)) msg = "入力内容に誤りがあります。数値の範囲を確認してください。";
     } catch (_) { /* 本文なし */ }
+    if (warned) throw warned;
     if (res.status === 401) showAuthScreen();
     throw new Error(msg);
   }
@@ -282,11 +289,7 @@ function numOrNull(id) {
   return v === "" ? null : Number(v);
 }
 
-$("#session-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  stopPhase();
-  showError("#form-error", "");
-
+function collectBody() {
   const sets = $$(".set-row")
     .filter(rowHasData)
     .map((row) => {
@@ -296,33 +299,101 @@ $("#session-form").addEventListener("submit", async (e) => {
       };
       return { sauna_min: get("sauna_min"), water_min: get("water_min"), rest_min: get("rest_min") };
     });
-  if (sets.length === 0) return showError("#form-error", "セットの時間を1つ以上入力してください。");
+  if (sets.length === 0) return { error: "セットの時間を1つ以上入力してください。" };
 
   const score = $('input[name="score"]:checked');
-  if (!score) return showError("#form-error", "ととのい度を選んでください。");
+  if (!score) return { error: "ととのい度を選んでください。" };
 
-  const body = {
-    visited_on: $("#f-date").value || todayStr(),
-    facility: $("#f-facility").value.trim(),
-    sauna_temp: numOrNull("#f-sauna-temp"),
-    water_temp: numOrNull("#f-water-temp"),
-    sleep_hours: numOrNull("#f-sleep"),
-    fatigue: $('input[name="fatigue"]:checked').value,
-    ate_before: $('input[name="ate"]:checked').value === "yes",
-    score: Number(score.value),
-    note: $("#f-note").value.trim(),
-    sets,
+  return {
+    body: {
+      visited_on: $("#f-date").value || todayStr(),
+      facility: $("#f-facility").value.trim(),
+      sauna_temp: numOrNull("#f-sauna-temp"),
+      water_temp: numOrNull("#f-water-temp"),
+      sleep_hours: numOrNull("#f-sleep"),
+      fatigue: $('input[name="fatigue"]:checked').value,
+      ate_before: $('input[name="ate"]:checked').value === "yes",
+      score: Number(score.value),
+      note: $("#f-note").value.trim(),
+      sets,
+    },
   };
+}
 
+function showWarnings(list) {
+  const box = $("#form-warn");
+  box.hidden = !list || list.length === 0;
+  $("#form-warn-list").innerHTML = (list || []).map((w) => `<li>${esc(w)}</li>`).join("");
+}
+
+// confirmed=true: 警告を見たうえで「このまま保存」を選んだ場合
+async function saveSession(confirmed) {
+  stopPhase();
+  showError("#form-error", "");
+  const { body, error } = collectBody();
+  if (error) { showWarnings(null); return showError("#form-error", error); }
+
+  const editing = state.editingId;
+  const query = confirmed ? "?confirmed=true" : "";
   try {
-    await api("/sessions", { method: "POST", body: JSON.stringify(body) });
+    if (editing) await api(`/sessions/${editing}${query}`, { method: "PUT", body: JSON.stringify(body) });
+    else await api(`/sessions${query}`, { method: "POST", body: JSON.stringify(body) });
   } catch (err) {
+    if (err.warnings) { showWarnings(err.warnings); return $("#form-warn").scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+    showWarnings(null);
     return showError("#form-error", err.message);
   }
-  toast("記録しました");
-  resetForm();
+  showWarnings(null);
+  toast(editing ? "記録を更新しました" : "記録しました");
+  endEdit();
   await refresh();
-});
+}
+
+$("#session-form").addEventListener("submit", (e) => { e.preventDefault(); saveSession(false); });
+$("#warn-save").addEventListener("click", () => saveSession(true));
+$("#warn-fix").addEventListener("click", () => { showWarnings(null); $("#f-date").focus(); });
+
+/* ---------- 過去の記録の編集 ---------- */
+
+function setRadio(name, value) {
+  const el = $(`input[name="${name}"][value="${value}"]`);
+  if (el) el.checked = true;
+}
+
+function startEdit(id) {
+  const s = state.sessions.find((x) => x.id === id);
+  if (!s) return;
+  stopPhase();
+  state.editingId = id;
+  showWarnings(null);
+  showError("#form-error", "");
+  $("#f-date").value = s.visited_on;
+  $("#f-facility").value = s.facility || "";
+  $("#f-sauna-temp").value = s.sauna_temp ?? "";
+  $("#f-water-temp").value = s.water_temp ?? "";
+  $("#f-sleep").value = s.sleep_hours ?? "";
+  setRadio("fatigue", s.fatigue);
+  setRadio("ate", s.ate_before ? "yes" : "no");
+  setRadio("score", s.score);
+  $("#f-note").value = s.note || "";
+  $("#sets").innerHTML = "";
+  s.sets.forEach((x) => addSetRow(x));
+  $("#form-title").textContent = "記録を編集する";
+  $("#edit-banner").hidden = false;
+  $("#submit-btn").textContent = "変更を保存する";
+  $("#session-form").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function endEdit() {
+  state.editingId = null;
+  $("#form-title").textContent = "今日のサウナ";
+  $("#edit-banner").hidden = true;
+  $("#submit-btn").textContent = "今日の記録を保存する";
+  resetForm();
+  $("#f-date").value = todayStr();
+}
+
+$("#cancel-edit").addEventListener("click", () => { showWarnings(null); showError("#form-error", ""); endEdit(); });
 
 function renderFacilityList() {
   const names = [...new Set(state.sessions.map((s) => s.facility).filter(Boolean))];
@@ -366,9 +437,14 @@ function renderRecent() {
       <div class="recent-title">${esc(s.visited_on)} ${esc(s.facility) || "施設未入力"} ${dots(s.score)}
         ${s.is_sample ? '<span class="tag">サンプル</span>' : ""}</div>
       <div class="recent-meta">${s.sets.length}セット(サウナ/水風呂/休憩) ${esc(sets)}${env ? `<br>${esc(env)}` : ""}</div>
-      <button type="button" class="btn ghost del" data-id="${s.id}">削除</button>
+      <div class="recent-actions">
+        <button type="button" class="btn ghost edit" data-id="${s.id}">編集</button>
+        <button type="button" class="btn ghost del" data-id="${s.id}">削除</button>
+      </div>
     </div>`;
   }).join("");
+
+  $$(".edit", box).forEach((btn) => btn.addEventListener("click", () => startEdit(Number(btn.dataset.id))));
 
   // 削除は2回押しで確定(ブラウザの確認ダイアログは使わない)
   $$(".del", box).forEach((btn) => {
