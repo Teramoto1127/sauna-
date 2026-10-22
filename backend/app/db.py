@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
     email        TEXT    NOT NULL COLLATE NOCASE UNIQUE,
     display_name TEXT    NOT NULL,
     password_hash TEXT   NOT NULL,
+    consent_version TEXT,                      -- 同意した説明文の版(未同意は NULL)
+    consented_at TEXT,
     created_at   TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -35,6 +37,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     sauna_temp  REAL,                          -- サウナ室の温度 (℃)
     water_temp  REAL,                          -- 水風呂の温度 (℃)
     sleep_hours REAL,                          -- 前日の睡眠時間
+    resting_hr  REAL,                          -- 安静時心拍(bpm・任意。いまは予測に使わない)
     fatigue     TEXT    NOT NULL DEFAULT 'mid' CHECK (fatigue IN ('low', 'mid', 'high')),
     ate_before  INTEGER NOT NULL DEFAULT 0,    -- サウナ前に食事をしたか
     score       INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
@@ -49,6 +52,20 @@ CREATE TABLE IF NOT EXISTS sets (
     sauna_min  REAL    NOT NULL,
     water_min  REAL    NOT NULL,
     rest_min   REAL    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS predictions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    for_date    TEXT    NOT NULL,              -- 予測の対象日 YYYY-MM-DD
+    context     TEXT    NOT NULL,              -- 予測したときの条件(JSON)
+    context_key TEXT    NOT NULL,              -- 条件の同一判定用
+    sauna_min   REAL    NOT NULL,              -- 提案した配分
+    water_min   REAL    NOT NULL,
+    rest_min    REAL    NOT NULL,
+    predicted_score REAL NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, for_date, context_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions (visited_on);
@@ -79,18 +96,57 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
         # 認証追加前のDBは sessions.user_id を持たない。記録は削除せず、所有者不明の
         # 既存データとして残す（安全に特定の新規ユーザーへ割り当てることはしない）。
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        if "consent_version" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN consent_version TEXT")
+            conn.execute("ALTER TABLE users ADD COLUMN consented_at TEXT")
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
+        if "resting_hr" not in columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN resting_hr REAL")
         if "user_id" not in columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER REFERENCES users(id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON sessions (user_id, visited_on)")
 
 
-def create_user(conn: sqlite3.Connection, email: str, display_name: str, password_hash: str) -> dict:
+def create_user(
+    conn: sqlite3.Connection, email: str, display_name: str, password_hash: str, consent_version: str | None = None
+) -> dict:
     cur = conn.execute(
-        "INSERT INTO users (email, display_name, password_hash) VALUES (?, ?, ?)",
-        (email, display_name, password_hash),
+        """
+        INSERT INTO users (email, display_name, password_hash, consent_version, consented_at)
+        VALUES (?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END)
+        """,
+        (email, display_name, password_hash, consent_version, consent_version),
     )
-    return {"id": int(cur.lastrowid), "email": email, "display_name": display_name}
+    return {"id": int(cur.lastrowid), "email": email, "display_name": display_name, "consent_version": consent_version}
+
+
+def fetch_user_by_id(conn: sqlite3.Connection, user_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT id, email, display_name, password_hash FROM users WHERE id = ?", (user_id,)).fetchone()
+
+
+def set_consent(conn: sqlite3.Connection, user_id: int, version: str) -> None:
+    conn.execute(
+        "UPDATE users SET consent_version = ?, consented_at = CURRENT_TIMESTAMP WHERE id = ?", (version, user_id)
+    )
+
+
+def set_password(conn: sqlite3.Connection, user_id: int, password_hash: str) -> None:
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+
+
+def delete_all_sessions(conn: sqlite3.Connection, user_id: int) -> int:
+    """自分の記録をすべて削除する(サンプルも含む)。予測の履歴も消す。"""
+    conn.execute("DELETE FROM predictions WHERE user_id = ?", (user_id,))
+    return conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,)).rowcount
+
+
+def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
+    """アカウントと、紐づく記録・ログイン状態をすべて削除する。"""
+    conn.execute("DELETE FROM predictions WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
 
 def fetch_user_by_email(conn: sqlite3.Connection, email: str) -> sqlite3.Row | None:
@@ -109,9 +165,9 @@ def insert_session(conn: sqlite3.Connection, data: dict, user_id: int, is_sample
     cur = conn.execute(
         """
         INSERT INTO sessions
-            (user_id, visited_on, facility, sauna_temp, water_temp, sleep_hours,
+            (user_id, visited_on, facility, sauna_temp, water_temp, sleep_hours, resting_hr,
              fatigue, ate_before, score, note, is_sample)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -120,6 +176,7 @@ def insert_session(conn: sqlite3.Connection, data: dict, user_id: int, is_sample
             data.get("sauna_temp"),
             data.get("water_temp"),
             data.get("sleep_hours"),
+            data.get("resting_hr"),
             data.get("fatigue", "mid"),
             1 if data.get("ate_before") else 0,
             data["score"],
@@ -172,6 +229,7 @@ def fetch_sessions(conn: sqlite3.Connection, user_id: int, include_sample: bool 
             "sauna_temp": r["sauna_temp"],
             "water_temp": r["water_temp"],
             "sleep_hours": r["sleep_hours"],
+            "resting_hr": r["resting_hr"],
             "fatigue": r["fatigue"],
             "ate_before": bool(r["ate_before"]),
             "score": r["score"],
@@ -188,7 +246,7 @@ def update_session(conn: sqlite3.Connection, session_id: int, data: dict, user_i
     cur = conn.execute(
         """
         UPDATE sessions SET visited_on = ?, facility = ?, sauna_temp = ?, water_temp = ?,
-               sleep_hours = ?, fatigue = ?, ate_before = ?, score = ?, note = ?
+               sleep_hours = ?, resting_hr = ?, fatigue = ?, ate_before = ?, score = ?, note = ?
         WHERE id = ? AND user_id = ?
         """,
         (
@@ -197,6 +255,7 @@ def update_session(conn: sqlite3.Connection, session_id: int, data: dict, user_i
             data.get("sauna_temp"),
             data.get("water_temp"),
             data.get("sleep_hours"),
+            data.get("resting_hr"),
             data.get("fatigue", "mid"),
             1 if data.get("ate_before") else 0,
             data["score"],
@@ -216,6 +275,32 @@ def update_session(conn: sqlite3.Connection, session_id: int, data: dict, user_i
         ],
     )
     return True
+
+
+def log_prediction(conn: sqlite3.Connection, user_id: int, for_date: str, ctx: dict, best: dict) -> None:
+    """予測を1件記録する。同じ日・同じ条件の予測は、最新のもので置き換える。"""
+    import hashlib
+    import json
+
+    context = json.dumps(ctx, sort_keys=True, ensure_ascii=False)
+    key = hashlib.sha256(context.encode("utf-8")).hexdigest()[:16]
+    conn.execute(
+        """
+        INSERT INTO predictions (user_id, for_date, context, context_key, sauna_min, water_min, rest_min, predicted_score)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (user_id, for_date, context_key) DO UPDATE SET
+            sauna_min = excluded.sauna_min, water_min = excluded.water_min, rest_min = excluded.rest_min,
+            predicted_score = excluded.predicted_score, created_at = CURRENT_TIMESTAMP
+        """,
+        (user_id, for_date, context, key, best["sauna_min"], best["water_min"], best["rest_min"], best["predicted_score"]),
+    )
+
+
+def fetch_predictions(conn: sqlite3.Connection, user_id: int, limit: int = 30) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM predictions WHERE user_id = ? ORDER BY for_date DESC, id DESC LIMIT ?", (user_id, limit)
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def delete_session(conn: sqlite3.Connection, session_id: int, user_id: int) -> bool:

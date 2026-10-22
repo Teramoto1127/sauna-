@@ -88,3 +88,46 @@ def test_dashboard_aggregates():
     first = d["set_distribution"][0]
     assert first["set_no"] == 1 and first["n"] == 2 and first["sauna"] == 8.0
     assert d["calendar"][0]["date"] == "2026-09-30"
+
+
+# ---- 体調・条件別 ----------------------------------------------------------
+
+
+def _s(i, sleep, fatigue, ate, score, sets=((9, 1.5, 12),)):
+    return {
+        "id": i, "visited_on": f"2026-09-{i:02d}", "facility": "X", "sauna_temp": 90, "water_temp": 15,
+        "sleep_hours": sleep, "fatigue": fatigue, "ate_before": ate, "score": score, "note": "",
+        "sets": [{"set_no": n + 1, "sauna_min": a, "water_min": b, "rest_min": c} for n, (a, b, c) in enumerate(sets)],
+    }
+
+
+def test_by_condition_splits_groups_and_flags_small_samples():
+    from app import analysis
+
+    sessions = [_s(i, 5, "high", False, 4, ((7, 1, 10),)) for i in range(1, 6)]          # 睡眠<6 が5件(すべて高得点)
+    sessions += [_s(10 + i, 7, "mid", True, 5 if i else 2, ((11, 2, 14),)) for i in range(2)]  # 睡眠6〜8 が2件
+    sessions.append(_s(20, None, "low", False, 3))                                         # 睡眠不明
+
+    cond = analysis.by_condition(sessions)
+    sleep = {g["key"]: g for g in next(d for d in cond["dimensions"] if d["key"] == "sleep")["groups"]}
+    assert sleep["short"]["n_sessions"] == 5 and sleep["short"]["reliable"] is True
+    assert sleep["short"]["golden"]["sauna_min"] == 7.0
+    assert sleep["mid"]["n_sessions"] == 2 and sleep["mid"]["reliable"] is False
+    assert sleep["long"]["n_sessions"] == 0 and sleep["long"]["golden"] is None
+    assert sleep["short"]["best"]["score"] == 4
+
+    fatigue = {g["key"]: g for g in next(d for d in cond["dimensions"] if d["key"] == "fatigue")["groups"]}
+    assert fatigue["high"]["n_sessions"] == 5 and fatigue["low"]["n_sessions"] == 1
+
+    gaps = {(g["dimension"], g["label"]): g for g in cond["gaps"]}
+    assert gaps[("前日の睡眠", "8時間以上")]["needed"] == 5
+    assert gaps[("前日の睡眠", "6〜8時間")]["needed"] == 3
+    assert ("前日の睡眠", "6時間未満") not in gaps
+
+
+def test_by_condition_handles_no_sessions():
+    from app import analysis
+
+    cond = analysis.by_condition([])
+    assert all(g["n_sessions"] == 0 and g["golden"] is None for d in cond["dimensions"] for g in d["groups"])
+    assert len(cond["gaps"]) == sum(len(d["groups"]) for d in cond["dimensions"])

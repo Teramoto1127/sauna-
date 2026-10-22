@@ -117,8 +117,15 @@ async function startAuthenticatedApp(user) {
   $("#greeting").textContent = greetingFor(user);
   $("#today-line").textContent = todayLine();
   $("#app").hidden = false;
+  $("#consent-banner").hidden = user.consent_current !== false;
+  $("#consent-status").textContent = user.consent_current === false
+    ? "データの扱いへの同意が、新しい説明文に更新されていません。"
+    : "データの扱いに同意いただいています。";
   showView("record");
+  const restored = restoreDraft();
+  resumeTimer();
   await refresh();
+  if (restored) toast("途中まで入力していた内容を戻しました");
   try {
     const flash = sessionStorage.getItem("sauna.flash");
     if (flash) { sessionStorage.removeItem("sauna.flash"); toast(flash); }
@@ -161,12 +168,50 @@ function showView(name) {
   $$(".tab").forEach((t) => t.classList.toggle("is-active", t.dataset.view === name));
   $$(".view").forEach((v) => { v.hidden = v.id !== `view-${name}`; });
   renderActive();
+  if (name === "predict") loadReview();
   window.scrollTo({ top: 0 });
+}
+
+/* ---------- 予測の答え合わせ ---------- */
+
+async function loadReview() {
+  try { renderReview(await api("/predictions/review")); }
+  catch (err) { $("#review-card").innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+}
+
+function renderReview(r) {
+  const sm = r.summary;
+  const box = $("#review-card");
+  if (sm.n_predictions === 0) {
+    box.innerHTML = `<h2>予測の答え合わせ</h2>
+      <p class="meta lead">予測を出すと、ここに残ります。その日に実際の記録を保存すると、予測と結果を並べて見られます。</p>`;
+    return;
+  }
+  const head = sm.mean_abs_error != null
+    ? `<p class="lead">予測と実際のととのい度は、平均で <strong class="em">${sm.mean_abs_error.toFixed(2)}</strong> ずれました(${sm.n_matched}回分)。${Math.abs(sm.mean_error) >= 0.3 ? (sm.mean_error > 0 ? "実際のほうが、予測より高めに出ています。" : "実際のほうが、予測より低めに出ています。") : "高めにも低めにも、大きく偏ってはいません。"}</p>
+       <p class="meta">少ない回数の平均は、ぶれます。回数が増えるほど、信頼できます。</p>`
+    : `<p class="meta lead">予測と実際を並べられたのは ${sm.n_matched} 回です。${r.min_review}回たまると、平均のずれを出します。</p>`;
+  const rows = r.items.slice(0, 10).map((i) => {
+    const a = i.actual;
+    return `<tr>
+      <td>${esc(i.for_date)}</td>
+      <td>${fmt1(i.plan.sauna_min)}/${fmt1(i.plan.water_min)}/${fmt1(i.plan.rest_min)}</td>
+      <td>${fmt1(i.predicted_score)}</td>
+      <td>${a ? `${fmt1(a.sauna_min)}/${fmt1(a.water_min)}/${fmt1(a.rest_min)}` : "—"}</td>
+      <td>${a ? a.score : "—"}</td>
+      <td>${a ? (i.error > 0 ? "+" : "") + i.error.toFixed(1) : "—"}</td></tr>`;
+  }).join("");
+  box.innerHTML = `<h2>予測の答え合わせ</h2>${head}
+    <div class="table-wrap"><table>
+      <thead><tr><th>日付</th><th>提案(サウナ/水風呂/休憩)</th><th>予測</th><th>実際の時間</th><th>実際</th><th>差</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <p class="meta">「実際」は、同じ日に保存したあなたの記録です(サンプルは除きます)。</p>`;
 }
 
 function renderActive() {
   if (state.view === "record") renderRecent();
   if (state.view === "golden") renderGolden();
+  if (state.view === "history") renderHistory();
   if (state.view === "dashboard") renderDashboard();
 }
 
@@ -216,8 +261,9 @@ function stopPhase() {
   if (!timer.phase) return;
   const minutes = (Date.now() - timer.startedAt) / 60000;
   const field = $(`[data-field="${PHASE[timer.phase].key}"]`, timer.row);
-  if (field) field.value = fmt1(minutes);
+  if (field) { field.value = fmt1(minutes); saveDraft(); }
   timer.phase = null;
+  storeRemove("sauna.timer");
   clearInterval(timer.tick);
   if (timer.wakeLock) { timer.wakeLock.release().catch(() => {}); timer.wakeLock = null; }
   updateTimerUi();
@@ -232,6 +278,7 @@ function startPhase(phase) {
   timer.phase = phase;
   timer.startedAt = Date.now();
   timer.row = row;
+  storeSet("sauna.timer", { uid: state.user && state.user.id, phase, startedAt: timer.startedAt, rowIndex: $$(".set-row").indexOf(row) });
   timer.tick = setInterval(updateTimerUi, 250);
   if (navigator.wakeLock) {
     navigator.wakeLock.request("screen").then((l) => { timer.wakeLock = l; }).catch(() => {});
@@ -267,9 +314,11 @@ function addSetRow(values = {}) {
     if (timer.row === row) stopPhase();
     row.remove();
     renumberSets();
+    saveDraft();
   });
   $("#sets").appendChild(row);
   renumberSets();
+  saveDraft();
   return row;
 }
 
@@ -281,6 +330,92 @@ function resetForm() {
   $$('input[name="score"]').forEach((r) => { r.checked = false; });
   $("#f-note").value = "";
 }
+
+/* ---------- 下書き・タイマーの保存(この端末のブラウザだけ) ---------- */
+
+function storeSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) { /* 保存できなくても続行 */ }
+}
+function storeGet(key) {
+  try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { return null; }
+}
+function storeRemove(key) {
+  try { localStorage.removeItem(key); } catch (_) { /* 続行 */ }
+}
+
+function readDraft() {
+  const val = (id) => $(id).value;
+  return {
+    uid: state.user && state.user.id,
+    date: val("#f-date"), facility: val("#f-facility"),
+    sauna_temp: val("#f-sauna-temp"), water_temp: val("#f-water-temp"),
+    sleep: val("#f-sleep"), hr: val("#f-hr"),
+    fatigue: ($('input[name="fatigue"]:checked') || {}).value,
+    ate: ($('input[name="ate"]:checked') || {}).value,
+    score: ($('input[name="score"]:checked') || {}).value || "",
+    note: val("#f-note"),
+    sets: $$(".set-row").map((row) => ({
+      sauna_min: $('[data-field="sauna_min"]', row).value,
+      water_min: $('[data-field="water_min"]', row).value,
+      rest_min: $('[data-field="rest_min"]', row).value,
+    })),
+  };
+}
+
+let draftTimer = null;
+function saveDraft() {
+  if (state.editingId || !state.user) return; // 編集中は、過去の記録を下書きに混ぜない
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    const d = readDraft();
+    const dirty = d.sets.some((x) => x.sauna_min || x.water_min || x.rest_min) || d.score || d.note.trim();
+    if (dirty) storeSet("sauna.draft", d); else storeRemove("sauna.draft");
+  }, 300);
+}
+
+function clearDraft() {
+  clearTimeout(draftTimer);
+  storeRemove("sauna.draft");
+}
+
+function restoreDraft() {
+  const d = storeGet("sauna.draft");
+  if (!d || !state.user || d.uid !== state.user.id || state.editingId) return false;
+  $("#f-date").value = d.date || todayStr();
+  $("#f-facility").value = d.facility || "";
+  $("#f-sauna-temp").value = d.sauna_temp ?? "";
+  $("#f-water-temp").value = d.water_temp ?? "";
+  $("#f-sleep").value = d.sleep ?? "";
+  $("#f-hr").value = d.hr ?? "";
+  if (d.fatigue) setRadio("fatigue", d.fatigue);
+  if (d.ate) setRadio("ate", d.ate);
+  if (d.score) setRadio("score", d.score);
+  $("#f-note").value = d.note || "";
+  $("#sets").innerHTML = "";
+  (d.sets && d.sets.length ? d.sets : [{}]).forEach((x) => addSetRow(x));
+  return true;
+}
+
+// 閉じる前に測りかけだったタイマーを、続きから動かす(3時間を過ぎたものは捨てる)
+function resumeTimer() {
+  const t = storeGet("sauna.timer");
+  if (!t || !state.user || t.uid !== state.user.id || !PHASE[t.phase]) { storeRemove("sauna.timer"); return false; }
+  if (Date.now() - t.startedAt > 3 * 3600 * 1000 || t.startedAt > Date.now()) { storeRemove("sauna.timer"); return false; }
+  let rows = $$(".set-row");
+  while (rows.length <= t.rowIndex) { addSetRow(); rows = $$(".set-row"); }
+  timer.phase = t.phase;
+  timer.startedAt = t.startedAt;
+  timer.row = rows[Math.max(0, t.rowIndex)];
+  timer.tick = setInterval(updateTimerUi, 250);
+  if (navigator.wakeLock) {
+    navigator.wakeLock.request("screen").then((l) => { timer.wakeLock = l; }).catch(() => {});
+  }
+  updateTimerUi();
+  return true;
+}
+
+$("#session-form").addEventListener("input", saveDraft);
+$("#session-form").addEventListener("change", saveDraft);
 
 /* ---------- 記録フォーム ---------- */
 
@@ -311,6 +446,7 @@ function collectBody() {
       sauna_temp: numOrNull("#f-sauna-temp"),
       water_temp: numOrNull("#f-water-temp"),
       sleep_hours: numOrNull("#f-sleep"),
+      resting_hr: numOrNull("#f-hr"),
       fatigue: $('input[name="fatigue"]:checked').value,
       ate_before: $('input[name="ate"]:checked').value === "yes",
       score: Number(score.value),
@@ -345,6 +481,7 @@ async function saveSession(confirmed) {
   }
   showWarnings(null);
   toast(editing ? "記録を更新しました" : "記録しました");
+  clearDraft();
   endEdit();
   await refresh();
 }
@@ -372,6 +509,7 @@ function startEdit(id) {
   $("#f-sauna-temp").value = s.sauna_temp ?? "";
   $("#f-water-temp").value = s.water_temp ?? "";
   $("#f-sleep").value = s.sleep_hours ?? "";
+  $("#f-hr").value = s.resting_hr ?? "";
   setRadio("fatigue", s.fatigue);
   setRadio("ate", s.ate_before ? "yes" : "no");
   setRadio("score", s.score);
@@ -386,6 +524,7 @@ function startEdit(id) {
 
 function endEdit() {
   state.editingId = null;
+  clearTimeout(draftTimer);
   $("#form-title").textContent = "今日のサウナ";
   $("#edit-banner").hidden = true;
   $("#submit-btn").textContent = "今日の記録を保存する";
@@ -404,6 +543,24 @@ function renderFacilityList() {
 
 const MIN_SESSIONS = 20; // backend/app/ml.py の MIN_SESSIONS と同じ
 
+function weekStartStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // 月曜はじまり
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function goalBlock() {
+  const goal = Number((storeGet("sauna.weeklyGoal") || {}).n) || 0;
+  const week = weekStartStr();
+  const done = state.sessions.filter((x) => !x.is_sample && x.visited_on >= week).length;
+  const opts = [0, 1, 2, 3, 4, 5, 7].map((n) => `<option value="${n}"${n === goal ? " selected" : ""}>${n ? `週に${n}回` : "決めない"}</option>`).join("");
+  const text = goal
+    ? (done >= goal ? `今週は ${done}回。目標を達成しました。` : `今週は ${done} / ${goal} 回。あと ${goal - done}回です。`)
+    : "今週の目標を決めると、ここに進み具合が出ます。";
+  return `<div class="goal"><label for="goal-select">今週の目標</label><select id="goal-select">${opts}</select><p class="meta">${text}</p></div>`;
+}
+
 function renderNextCard() {
   const own = state.sessions.filter((x) => !x.is_sample).length;
   const left = Math.max(0, MIN_SESSIONS - own);
@@ -415,7 +572,9 @@ function renderNextCard() {
     <p class="meta lead">${lead}</p>
     <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${MIN_SESSIONS}" aria-valuenow="${Math.min(own, MIN_SESSIONS)}" aria-label="記録の数"><i style="width:${pct}%"></i></div>
     <span class="num-small">${Math.min(own, MIN_SESSIONS)} / ${MIN_SESSIONS} 回</span>
-    <button type="button" class="btn ghost" data-go="${left > 0 ? "golden" : "predict"}">${left > 0 ? "黄金比を見る" : "予測を試す"}</button>`;
+    <button type="button" class="btn ghost" data-go="${left > 0 ? "golden" : "predict"}">${left > 0 ? "黄金比を見る" : "予測を試す"}</button>
+    ${goalBlock()}`;
+  $("#goal-select").addEventListener("change", (e) => { storeSet("sauna.weeklyGoal", { n: Number(e.target.value) }); renderNextCard(); });
   const go = $("#next-card [data-go]");
   go.addEventListener("click", () => showView(go.dataset.go));
 }
@@ -427,24 +586,35 @@ function renderRecent() {
     box.innerHTML = `<p class="empty">まだ記録がありません。左のフォームから最初のセッションを記録するか、ページ下の「サンプルを追加」で動作を試せます。</p>`;
     return;
   }
-  box.innerHTML = state.sessions.slice(0, 8).map((s) => {
-    const sets = s.sets.map((x) => `${fmt1(x.sauna_min)}/${fmt1(x.water_min)}/${fmt1(x.rest_min)}`).join(" → ");
-    const env = [
-      s.sauna_temp != null ? `室温${s.sauna_temp}℃` : null,
-      s.water_temp != null ? `水風呂${s.water_temp}℃` : null,
-    ].filter(Boolean).join(" ");
-    return `<div class="recent-item" data-id="${s.id}">
-      <div class="recent-title">${esc(s.visited_on)} ${esc(s.facility) || "施設未入力"} ${dots(s.score)}
-        ${s.is_sample ? '<span class="tag">サンプル</span>' : ""}</div>
-      <div class="recent-meta">${s.sets.length}セット(サウナ/水風呂/休憩) ${esc(sets)}${env ? `<br>${esc(env)}` : ""}</div>
-      <div class="recent-actions">
-        <button type="button" class="btn ghost edit" data-id="${s.id}">編集</button>
-        <button type="button" class="btn ghost del" data-id="${s.id}">削除</button>
-      </div>
-    </div>`;
-  }).join("");
+  box.innerHTML = state.sessions.slice(0, 8).map(sessionItemHtml).join("");
+  wireItemButtons(box);
+}
 
-  $$(".edit", box).forEach((btn) => btn.addEventListener("click", () => startEdit(Number(btn.dataset.id))));
+function sessionItemHtml(s) {
+  const sets = s.sets.map((x) => `${fmt1(x.sauna_min)}/${fmt1(x.water_min)}/${fmt1(x.rest_min)}`).join(" → ");
+  const env = [
+    s.sauna_temp != null ? `室温${s.sauna_temp}℃` : null,
+    s.water_temp != null ? `水風呂${s.water_temp}℃` : null,
+    s.sleep_hours != null ? `睡眠${s.sleep_hours}時間` : null,
+    s.resting_hr != null ? `安静時心拍${s.resting_hr}bpm` : null,
+    s.fatigue ? `疲労${FATIGUE_LABEL[s.fatigue]}` : null,
+  ].filter(Boolean).join(" ");
+  return `<div class="recent-item" data-id="${s.id}">
+    <div class="recent-title">${esc(s.visited_on)} ${esc(s.facility) || "施設未入力"} ${dots(s.score)}
+      ${s.is_sample ? '<span class="tag">サンプル</span>' : ""}</div>
+    <div class="recent-meta">${s.sets.length}セット(サウナ/水風呂/休憩) ${esc(sets)}${env ? `<br>${esc(env)}` : ""}${s.note ? `<br>メモ: ${esc(s.note)}` : ""}</div>
+    <div class="recent-actions">
+      <button type="button" class="btn ghost edit" data-id="${s.id}">編集</button>
+      <button type="button" class="btn ghost del" data-id="${s.id}">削除</button>
+    </div>
+  </div>`;
+}
+
+function wireItemButtons(box) {
+  $$(".edit", box).forEach((btn) => btn.addEventListener("click", () => {
+    showView("record");
+    startEdit(Number(btn.dataset.id));
+  }));
 
   // 削除は2回押しで確定(ブラウザの確認ダイアログは使わない)
   $$(".del", box).forEach((btn) => {
@@ -461,6 +631,7 @@ function renderRecent() {
       clearTimeout(t);
       try {
         await api(`/sessions/${btn.dataset.id}`, { method: "DELETE" });
+        if (state.editingId === Number(btn.dataset.id)) endEdit();
         toast("削除しました");
         await refresh();
       } catch (err) {
@@ -469,6 +640,48 @@ function renderRecent() {
     });
   });
 }
+
+/* ---------- 記録一覧(全件・絞り込み) ---------- */
+
+const HISTORY_PAGE = 20;
+const historyFilter = { text: "", from: "", to: "", minScore: 0, shown: HISTORY_PAGE };
+
+function filteredSessions() {
+  const q = historyFilter.text.trim().toLowerCase();
+  return state.sessions.filter((s) =>
+    (!q || `${s.facility} ${s.note}`.toLowerCase().includes(q)) &&
+    (!historyFilter.from || s.visited_on >= historyFilter.from) &&
+    (!historyFilter.to || s.visited_on <= historyFilter.to) &&
+    s.score >= historyFilter.minScore);
+}
+
+function renderHistory() {
+  const list = filteredSessions();
+  const shown = list.slice(0, historyFilter.shown);
+  $("#history-count").textContent = `${list.length}件${list.length !== state.sessions.length ? `(全${state.sessions.length}件中)` : ""}`;
+  const box = $("#history-list");
+  box.innerHTML = shown.length
+    ? shown.map(sessionItemHtml).join("")
+    : `<p class="empty">${state.sessions.length ? "条件に合う記録がありません。" : "まだ記録がありません。"}</p>`;
+  wireItemButtons(box);
+  $("#history-more").hidden = list.length <= shown.length;
+}
+
+function bindHistoryControls() {
+  const upd = () => { historyFilter.shown = HISTORY_PAGE; renderHistory(); };
+  $("#h-text").addEventListener("input", (e) => { historyFilter.text = e.target.value; upd(); });
+  $("#h-from").addEventListener("change", (e) => { historyFilter.from = e.target.value; upd(); });
+  $("#h-to").addEventListener("change", (e) => { historyFilter.to = e.target.value; upd(); });
+  $("#h-score").addEventListener("change", (e) => { historyFilter.minScore = Number(e.target.value); upd(); });
+  $("#h-reset").addEventListener("click", () => {
+    Object.assign(historyFilter, { text: "", from: "", to: "", minScore: 0, shown: HISTORY_PAGE });
+    ["#h-text", "#h-from", "#h-to"].forEach((id) => { $(id).value = ""; });
+    $("#h-score").value = "0";
+    renderHistory();
+  });
+  $("#history-more").addEventListener("click", () => { historyFilter.shown += HISTORY_PAGE; renderHistory(); });
+}
+bindHistoryControls();
 
 /* ---------- 黄金比 ---------- */
 
@@ -513,10 +726,40 @@ function renderGolden() {
         ${goldenBlock(g.warm_water.golden, emptyHigh)}
       </div>
     </div>
+    ${conditionCards(g.by_condition, th)}
     <div class="card">
       <h2>施設ごとの黄金比</h2>
       ${facilities}
     </div>`;
+}
+
+function conditionCards(c, th) {
+  if (!c) return "";
+  const dims = c.dimensions.map((d) => {
+    const rows = d.groups.map((r) => {
+      const g = r.golden;
+      const best = r.best
+        ? `ベスト: ${esc(r.best.visited_on)} ${esc(r.best.facility) || "施設未入力"}(ととのい度${r.best.score}・${fmt1(r.best.sauna_min)}/${fmt1(r.best.water_min)}/${fmt1(r.best.rest_min)}分)`
+        : "";
+      return `<div class="cond-row">
+        <div class="fac-head">${esc(r.label)}<span>${r.n_sessions}回${r.avg_score != null ? ` / 平均 ${fmt1(r.avg_score)}` : ""}${r.n_sessions && !r.reliable ? ' <em class="tag">参考程度</em>' : ""}</span></div>
+        ${g ? `${phaseBar(g)}<p class="meta">${esc(g.label)}(ととのい度${th}以上 ${g.n_sessions}件)</p>`
+            : `<p class="meta">${r.n_sessions ? `ととのい度${th}以上の記録がまだありません。` : "この条件の記録はまだありません。"}</p>`}
+        ${best ? `<p class="meta">${best}</p>` : ""}
+      </div>`;
+    }).join("");
+    return `<div class="card"><h2>${esc(d.label)}で比べると</h2>${rows}</div>`;
+  }).join("");
+
+  const gaps = c.gaps.length
+    ? `<div class="card gaps"><h2>あと少しで比べられる条件</h2>
+        <p class="meta lead">条件ごとの記録が${c.min_group}回以上あると、体調による違いを見やすくなります。次に行く日の目安にしてください。</p>
+        <ul>${c.gaps.map((x) => `<li><strong>${esc(x.dimension)}: ${esc(x.label)}</strong> ${x.n_sessions}回${x.needed ? `(あと${x.needed}回)` : ""}${x.note ? ` ${esc(x.note)}` : ""}</li>`).join("")}</ul>
+      </div>`
+    : "";
+  return `<div class="cond-intro"><h2>体調によって、ととのう時間は変わる?</h2>
+      <p class="meta lead">睡眠・疲れ・食事で記録を分けて、それぞれの黄金比を出しました。「参考程度」の印は、記録が少なくて数字がぶれやすい条件です。少ない記録から、体調の影響を決めつけないでください。</p></div>
+    <div class="cols">${dims}</div>${gaps}`;
 }
 
 /* ---------- 予測 ---------- */
@@ -531,6 +774,10 @@ $("#predict-form").addEventListener("submit", async (e) => {
     fatigue: $('input[name="p-fatigue"]:checked').value,
     ate_before: $('input[name="p-ate"]:checked').value === "yes",
     n_sets: Number($("#p-sets").value) || 3,
+    drank: $("#p-drank").checked,
+    unwell: $("#p-unwell").checked,
+    restricted: $("#p-restricted").checked,
+    for_date: todayStr(),
   };
   const plan = [numOrNull("#p-plan-sauna"), numOrNull("#p-plan-water"), numOrNull("#p-plan-rest")];
   if (plan.every((v) => v !== null)) {
@@ -542,6 +789,7 @@ $("#predict-form").addEventListener("submit", async (e) => {
   try {
     const result = await api(`/predict?${qs()}`, { method: "POST", body: JSON.stringify(body) });
     renderPrediction(result);
+    if (result.status === "ok") loadReview();
   } catch (err) {
     showError("#predict-error", err.message);
   } finally {
@@ -552,6 +800,15 @@ $("#predict-form").addEventListener("submit", async (e) => {
 function renderPrediction(r) {
   const box = $("#predict-result");
   destroyChart("predict");
+
+  if (r.status === "blocked") {
+    box.innerHTML = `<div class="card caution">
+      <h2>今日は予測を出しません</h2>
+      <p>${esc(r.message)}</p>
+      <p class="meta">当てはまった状態: ${r.reasons.map(esc).join("、")}</p>
+    </div>`;
+    return;
+  }
 
   if (r.status === "insufficient_data") {
     box.innerHTML = `<div class="card">
@@ -821,6 +1078,120 @@ function renderSampleControls() {
     await refresh();
   });
 }
+
+/* ---------- データ・設定 ---------- */
+
+$("#consent-agree").addEventListener("click", async () => {
+  try {
+    await api("/account/consent", { method: "POST", body: JSON.stringify({ agree: true }) });
+    $("#consent-banner").hidden = true;
+    $("#consent-status").textContent = "データの扱いに同意いただいています。";
+    toast("ありがとうございます");
+  } catch (err) { toast(err.message); }
+});
+
+// --- CSV取り込み(先に確認 → 取り込む)
+let importBytes = null;
+
+async function postImport(commit) {
+  const res = await fetch(`/api/import/sessions?commit=${commit}`, {
+    method: "POST",
+    headers: { "Content-Type": "text/csv" },
+    credentials: "same-origin",
+    body: importBytes,
+  });
+  let data = null;
+  try { data = await res.json(); } catch (_) { /* 本文なし */ }
+  if (res.status === 401) showAuthScreen();
+  if (!res.ok) throw new Error((data && typeof data.detail === "string") ? data.detail : "取り込みに失敗しました。");
+  return data;
+}
+
+function renderImportReport(r) {
+  const box = $("#import-report");
+  const list = (items, fmt) => items.slice(0, 20).map((x) => `<li>${fmt(x)}</li>`).join("")
+    + (items.length > 20 ? `<li>ほか ${items.length - 20} 件</li>` : "");
+  box.innerHTML = `<div class="import-summary">
+      <p><strong>${r.importable}件</strong>を取り込めます。${r.duplicates ? `同じ記録 ${r.duplicates}件はすでにあるため、取り込みません。` : ""}</p>
+      ${r.errors.length ? `<p class="error">${r.errors.length}件は、形式が正しくないため取り込めません。</p>
+        <ul class="plain">${list(r.errors, (e) => `記録 ${esc(e.record)}(${e.line}行目): ${esc(e.reason)}`)}</ul>` : ""}
+      ${r.warnings.length ? `<p class="warn-text">${r.warnings.length}件は、打ち間違いかもしれない値を含みます(取り込みは可能です)。</p>
+        <ul class="plain">${list(r.warnings, (w) => `記録 ${esc(w.record)}(${w.line}行目): ${esc(w.warnings.join(" "))}`)}</ul>` : ""}
+      ${r.importable ? `<button type="button" class="btn primary" id="import-commit">${r.importable}件を取り込む</button>` : ""}
+    </div>`;
+  const go = $("#import-commit");
+  if (go) go.addEventListener("click", async () => {
+    go.disabled = true;
+    try {
+      const done = await postImport(true);
+      box.innerHTML = `<p><strong>${done.imported}件</strong>を取り込みました。</p>`;
+      $("#import-file").value = "";
+      importBytes = null;
+      toast(`${done.imported}件を取り込みました`);
+      await refresh();
+    } catch (err) { go.disabled = false; toast(err.message); }
+  });
+}
+
+$("#import-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  $("#import-report").innerHTML = "";
+  if (!file) return;
+  importBytes = await file.arrayBuffer();
+  try { renderImportReport(await postImport(false)); }
+  catch (err) { $("#import-report").innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+});
+
+// --- パスワード変更
+$("#password-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  showError("#pw-error", "");
+  const body = { current_password: $("#pw-current").value, new_password: $("#pw-new").value };
+  if (!body.current_password) return showError("#pw-error", "いまのパスワードを入力してください。");
+  if (body.new_password.length < 8) return showError("#pw-error", "新しいパスワードは8文字以上にしてください。");
+  try {
+    await api("/account/password", { method: "POST", body: JSON.stringify(body) });
+    $("#pw-current").value = "";
+    $("#pw-new").value = "";
+    toast("パスワードを変更しました");
+  } catch (err) { showError("#pw-error", err.message); }
+});
+
+// --- 削除(パスワード + 2回押し)
+function armedButton(btn, label, action) {
+  let armed = false;
+  let t = null;
+  btn.addEventListener("click", async () => {
+    showError("#del-error", "");
+    if (!$("#del-password").value) return showError("#del-error", "パスワードを入力してください。");
+    if (!armed) {
+      armed = true;
+      btn.textContent = "本当に削除する";
+      btn.classList.add("danger");
+      t = setTimeout(() => { armed = false; btn.textContent = label; btn.classList.remove("danger"); }, 5000);
+      return;
+    }
+    clearTimeout(t);
+    armed = false;
+    btn.textContent = label;
+    btn.classList.remove("danger");
+    try { await action($("#del-password").value); }
+    catch (err) { showError("#del-error", err.message); }
+  });
+}
+
+armedButton($("#del-data"), "記録をすべて削除", async (password) => {
+  const r = await api("/account/delete-data", { method: "POST", body: JSON.stringify({ password }) });
+  $("#del-password").value = "";
+  endEdit();
+  toast(`記録 ${r.deleted} 件を削除しました`);
+  await refresh();
+});
+
+armedButton($("#del-account"), "アカウントごと削除", async (password) => {
+  await api("/account/delete", { method: "POST", body: JSON.stringify({ password }) });
+  location.replace("/login.html");
+});
 
 /* ---------- 起動 ---------- */
 

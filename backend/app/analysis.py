@@ -60,6 +60,136 @@ def golden(sessions: list[dict], min_score: int = HIGH_SCORE) -> Optional[dict]:
     }
 
 
+# ---- 体調・条件別 ---------------------------------------------------------
+
+SLEEP_SHORT_H = 6.0     # これ未満を「睡眠が短い」
+SLEEP_LONG_H = 8.0      # これ以上を「睡眠が長い」
+MIN_GROUP = 5           # 条件ごとに最低これだけの記録がないと「参考程度」
+MIN_HIGH = 3            # 黄金比の元になる、ととのい度4以上の記録の最低数
+
+# (次元キー, 次元名, [(グループキー, 表示名, 判定関数), ...])
+CONDITION_DIMENSIONS = [
+    ("sleep", "前日の睡眠", [
+        ("short", f"{SLEEP_SHORT_H:g}時間未満", lambda s: s["sleep_hours"] is not None and s["sleep_hours"] < SLEEP_SHORT_H),
+        ("mid", f"{SLEEP_SHORT_H:g}〜{SLEEP_LONG_H:g}時間", lambda s: s["sleep_hours"] is not None and SLEEP_SHORT_H <= s["sleep_hours"] < SLEEP_LONG_H),
+        ("long", f"{SLEEP_LONG_H:g}時間以上", lambda s: s["sleep_hours"] is not None and s["sleep_hours"] >= SLEEP_LONG_H),
+    ]),
+    ("fatigue", "疲れ具合", [
+        ("low", "元気いっぱい", lambda s: s["fatigue"] == "low"),
+        ("mid", "ふつう", lambda s: s["fatigue"] == "mid"),
+        ("high", "お疲れ気味", lambda s: s["fatigue"] == "high"),
+    ]),
+    ("ate", "サウナ前の食事", [
+        ("no", "食べていない", lambda s: not s["ate_before"]),
+        ("yes", "食べた", lambda s: bool(s["ate_before"])),
+    ]),
+]
+
+
+def _best_session(items: list[dict]) -> Optional[dict]:
+    """その条件でいちばん点が高かった記録(同点は新しいほう)。"""
+    if not items:
+        return None
+    best = max(items, key=lambda s: (s["score"], s["visited_on"], s["id"]))
+    m = session_means(best)
+    return {
+        "id": best["id"],
+        "visited_on": best["visited_on"],
+        "facility": best["facility"],
+        "score": best["score"],
+        "sauna_min": round(m["sauna"], 1),
+        "water_min": round(m["water"], 1),
+        "rest_min": round(m["rest"], 1),
+    }
+
+
+def by_condition(sessions: list[dict]) -> dict:
+    """体調・条件ごとの黄金比と、記録が足りない条件の案内。
+
+    記録が少ない条件の平均はぶれる。reliable=False は「参考程度」の印で、
+    少数の記録から体調の影響を断定しないための目印。
+    """
+    usable = [s for s in sessions if s["sets"]]
+    dimensions = []
+    gaps = []
+    for key, label, groups in CONDITION_DIMENSIONS:
+        rows = []
+        for gkey, glabel, pred in groups:
+            items = [s for s in usable if pred(s)]
+            g = golden(items)
+            n_high = g["n_sessions"] if g else 0
+            reliable = len(items) >= MIN_GROUP and n_high >= MIN_HIGH
+            rows.append({
+                "key": gkey,
+                "label": glabel,
+                "n_sessions": len(items),
+                "avg_score": round(mean(i["score"] for i in items), 2) if items else None,
+                "golden": g,
+                "reliable": reliable,
+                "best": _best_session(items),
+            })
+            if len(items) < MIN_GROUP:
+                gaps.append({
+                    "dimension": label,
+                    "label": glabel,
+                    "n_sessions": len(items),
+                    "needed": MIN_GROUP - len(items),
+                })
+            elif n_high < MIN_HIGH:
+                gaps.append({
+                    "dimension": label,
+                    "label": glabel,
+                    "n_sessions": len(items),
+                    "needed": 0,
+                    "note": f"ととのい度{HIGH_SCORE}以上の記録があと{MIN_HIGH - n_high}件で、この条件の黄金比が出せます",
+                })
+        dimensions.append({"key": key, "label": label, "groups": rows})
+    return {"min_group": MIN_GROUP, "min_high": MIN_HIGH, "dimensions": dimensions, "gaps": gaps}
+
+
+MIN_REVIEW = 3  # 答え合わせの平均誤差を出すのに必要な、実際の記録と対応した予測の数
+
+
+def review_predictions(predictions: list[dict], sessions: list[dict]) -> dict:
+    """予測と、同じ日の実際の記録を並べる(答え合わせ)。
+
+    同じ日に記録が複数あれば、いちばん後に保存した記録を実際の結果とみなす。
+    誤差 = 実際のととのい度 - 予測。平均誤差は、対応した予測が MIN_REVIEW 件以上あるときだけ出す。
+    """
+    by_date: dict[str, dict] = {}
+    for s in sorted(sessions, key=lambda x: (x["visited_on"], x["id"])):
+        if s["sets"]:
+            by_date[s["visited_on"]] = s
+
+    items = []
+    for p in predictions:
+        actual = by_date.get(p["for_date"])
+        item = {
+            "for_date": p["for_date"],
+            "predicted_score": p["predicted_score"],
+            "plan": {"sauna_min": p["sauna_min"], "water_min": p["water_min"], "rest_min": p["rest_min"]},
+            "actual": None,
+        }
+        if actual:
+            m = session_means(actual)
+            item["actual"] = {
+                "score": actual["score"],
+                "sauna_min": round(m["sauna"], 1),
+                "water_min": round(m["water"], 1),
+                "rest_min": round(m["rest"], 1),
+                "facility": actual["facility"],
+            }
+            item["error"] = round(actual["score"] - p["predicted_score"], 2)
+        items.append(item)
+
+    matched = [i for i in items if i["actual"]]
+    summary = {"n_predictions": len(items), "n_matched": len(matched), "mean_abs_error": None, "mean_error": None}
+    if len(matched) >= MIN_REVIEW:
+        summary["mean_abs_error"] = round(mean(abs(i["error"]) for i in matched), 2)
+        summary["mean_error"] = round(mean(i["error"] for i in matched), 2)
+    return {"summary": summary, "min_review": MIN_REVIEW, "items": items}
+
+
 def golden_report(sessions: list[dict]) -> dict:
     """全体・水風呂温度別・施設別の黄金比をまとめて返す。"""
     with_temp = [s for s in sessions if s["water_temp"] is not None]
@@ -97,6 +227,7 @@ def golden_report(sessions: list[dict]) -> dict:
             "golden": golden(warm),
         },
         "by_facility": facilities,
+        "by_condition": by_condition(sessions),
     }
 
 

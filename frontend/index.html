@@ -7,6 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=DM+Mono:wght@500&display=swap">
+  <meta name="theme-color" content="#1a110c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="app-body">
@@ -18,10 +21,12 @@
       </div>
       <nav class="tabs" aria-label="画面切り替え">
         <button type="button" class="tab is-active" data-view="record"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18 10l-4-4L4 16zM13 7l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>記録する</span></button>
+        <button type="button" class="tab" data-view="history"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>記録一覧</span></button>
         <button type="button" class="tab" data-view="golden"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>黄金比</span></button>
         <button type="button" class="tab" data-view="predict"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l2.2 5.8L20 12l-5.8 2.2L12 20l-2.2-5.8L4 12l5.8-2.2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>予測</span></button>
         <button type="button" class="tab" data-view="dashboard"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-9M12 20V5M19 20v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>振り返り</span></button>
         <button type="button" class="tab" data-view="research"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6a2 2 0 012 2v13a2 2 0 00-2-2H4zM20 5h-6a2 2 0 00-2 2v13a2 2 0 012-2h6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>医科学</span></button>
+        <button type="button" class="tab" data-view="settings"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>データ・設定</span></button>
       </nav>
       <div class="me">
         <span class="avatar" id="account-avatar" aria-hidden="true"></span>
@@ -33,6 +38,11 @@
     </aside>
 
     <div class="content">
+      <div class="consent-banner" id="consent-banner" role="alert" hidden>
+        <span>データの扱いの説明が新しくなりました。内容を読んで、同意をお願いします。</span>
+        <a href="privacy.html" target="_blank" rel="noopener">読む</a>
+        <button type="button" class="btn primary" id="consent-agree">同意する</button>
+      </div>
   <main id="app-main">
     <!-- 記録 -->
     <section id="view-record" class="view" aria-label="記録">
@@ -103,6 +113,11 @@
               <label><input type="radio" name="ate" value="yes"><span>あり</span></label>
             </div>
           </fieldset>
+          <div class="field">
+            <label for="f-hr">安静時の心拍(任意・bpm)</label>
+            <input type="number" id="f-hr" inputmode="decimal" min="30" max="200" step="1" placeholder="例: 60">
+            <span class="help">いまは記録するだけで、予測にはまだ使いません。</span>
+          </div>
         </div>
 
         <div class="sets-block">
@@ -151,6 +166,29 @@
         <div id="recent"></div>
       </div>
       </div>
+      </div>
+    </section>
+
+    <!-- 記録一覧 -->
+    <section id="view-history" class="view" aria-label="記録一覧" hidden>
+      <header class="page-head">
+        <h1>記録一覧</h1>
+        <p>これまでの記録をすべて見られます。間違いは、ここから直せます。</p>
+      </header>
+      <div class="card">
+        <div class="grid three">
+          <div class="field"><label for="h-text">施設名・メモで探す</label><input type="text" id="h-text" placeholder="例: 〇〇サウナ"></div>
+          <div class="field"><label for="h-from">この日から</label><input type="date" id="h-from"></div>
+          <div class="field"><label for="h-to">この日まで</label><input type="date" id="h-to"></div>
+        </div>
+        <div class="filter-row">
+          <div class="field"><label for="h-score">ととのい度</label>
+            <select id="h-score"><option value="0">すべて</option><option value="3">3以上</option><option value="4">4以上</option><option value="5">5だけ</option></select></div>
+          <span class="num-small" id="history-count" aria-live="polite"></span>
+          <button type="button" class="btn ghost" id="h-reset">条件をクリア</button>
+        </div>
+        <div id="history-list"></div>
+        <button type="button" class="btn ghost" id="history-more" hidden>もっと見る</button>
       </div>
     </section>
 
@@ -207,10 +245,17 @@
             <div class="field"><label for="p-plan-rest">休憩 (分)</label><input type="number" id="p-plan-rest" inputmode="decimal" min="0" max="120" step="0.5"></div>
           </div>
         </details>
+        <fieldset class="field risk">
+          <legend>今日の状態(当てはまるものがあれば)</legend>
+          <label class="check"><input type="checkbox" id="p-drank"> <span>お酒を飲んでいる</span></label>
+          <label class="check"><input type="checkbox" id="p-unwell"> <span>熱があるなど、体調がすぐれない</span></label>
+          <label class="check"><input type="checkbox" id="p-restricted"> <span>医師からサウナを控えるよう言われている</span></label>
+        </fieldset>
         <p class="error" id="predict-error" role="alert" hidden></p>
         <button type="submit" class="btn primary">最適な配分を予測する</button>
       </form>
       <div id="predict-result"></div>
+      <section class="card" id="review-card" aria-label="予測の答え合わせ"></section>
     </section>
 
     <!-- 振り返り -->
@@ -263,6 +308,54 @@
       </form>
       <div id="research-result"></div>
     </section>
+    <!-- データ・設定 -->
+    <section id="view-settings" class="view" aria-label="データ・設定" hidden>
+      <header class="page-head">
+        <h1>データ・設定</h1>
+        <p>あなたの記録は、あなたのものです。書き出しも、削除も、ここからできます。</p>
+      </header>
+      <div class="cols">
+        <div class="col-main">
+          <section class="card">
+            <h2>記録をCSVで書き出す</h2>
+            <p class="meta lead">自分の記録をすべて保存できます(サンプルのデータは入りません)。Excelでも開けます。</p>
+            <a class="btn" id="export-link" href="/api/export/sessions.csv" download>CSVをダウンロード</a>
+          </section>
+          <section class="card">
+            <h2>CSVから取り込む</h2>
+            <p class="meta lead">書き出したCSVと同じ形式のファイルを取り込めます。先に内容を確認してから、保存します。同じ記録は二重に取り込みません。</p>
+            <div class="field"><label for="import-file">CSVファイル</label><input type="file" id="import-file" accept=".csv,text/csv"></div>
+            <div id="import-report" aria-live="polite"></div>
+          </section>
+        </div>
+        <div class="col-side">
+          <section class="card">
+            <h2>データの扱い</h2>
+            <p class="meta lead" id="consent-status"></p>
+            <a class="btn ghost" href="privacy.html" target="_blank" rel="noopener">説明を読む</a>
+          </section>
+          <form class="card form" id="password-form" novalidate>
+            <h2>パスワードを変える</h2>
+            <div class="field"><label for="pw-current">いまのパスワード</label><input type="password" id="pw-current" autocomplete="current-password" maxlength="128"></div>
+            <div class="field"><label for="pw-new">新しいパスワード(8文字以上)</label><input type="password" id="pw-new" autocomplete="new-password" minlength="8" maxlength="128"></div>
+            <p class="error" id="pw-error" role="alert" hidden></p>
+            <button type="submit" class="btn ghost">変更する</button>
+            <p class="hint">ほかの端末のログインは、解除されます。</p>
+          </form>
+          <section class="card danger-zone">
+            <h2>削除</h2>
+            <p class="meta lead">削除は取り消せません。念のため、先にCSVを書き出しておくと安心です。</p>
+            <div class="field"><label for="del-password">パスワード</label><input type="password" id="del-password" autocomplete="current-password" maxlength="128"></div>
+            <p class="error" id="del-error" role="alert" hidden></p>
+            <div class="del-actions">
+              <button type="button" class="btn ghost" id="del-data">記録をすべて削除</button>
+              <button type="button" class="btn ghost" id="del-account">アカウントごと削除</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <footer id="app-footer" class="foot">

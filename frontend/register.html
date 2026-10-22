@@ -7,6 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=DM+Mono:wght@500&display=swap">
+  <meta name="theme-color" content="#1a110c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="auth-body">
@@ -39,6 +42,10 @@
           <label for="register-password">パスワード</label>
           <input id="register-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>
           <span class="help">8文字以上で決めてください。</span>
+        </div>
+        <div class="consent">
+          <label class="check"><input type="checkbox" id="register-agree" required> <span><a href="privacy.html" target="_blank" rel="noopener">データの扱い</a>を読んで、同意します</span></label>
+          <span class="help">記録の保存・分析と、ととのい予測の開発に使うことへの同意です。いつでも削除できます。</span>
         </div>
         <p id="register-error" class="error" role="alert" hidden></p>
         <button type="submit" class="btn primary big">登録してはじめる</button>

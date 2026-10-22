@@ -28,7 +28,7 @@ async function submit(path, body, errorId, button) {
       try {
         const data = await res.json();
         if (typeof data.detail === "string") msg = data.detail;
-        else if (Array.isArray(data.detail)) msg = "入力内容に誤りがあります。メールアドレスの形式と、パスワードが8文字以上かを確認してください。";
+        else if (Array.isArray(data.detail)) msg = "入力内容に誤りがあります。メールアドレスの形式と、パスワードが8文字以上か、同意にチェックが入っているかを確認してください。";
       } catch (_) { /* 本文なし */ }
       throw new Error(msg);
     }
@@ -59,10 +59,12 @@ const registerForm = $("#register-form");
 if (registerForm) {
   registerForm.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (!$("#register-agree").checked) return showError("#register-error", "データの扱いへの同意にチェックを入れてください。");
     submit("/auth/register", {
       display_name: $("#register-name").value.trim(),
       email: $("#register-email").value.trim(),
       password: $("#register-password").value,
+      agree: $("#register-agree").checked,
     }, "#register-error", registerForm.querySelector("button[type=submit]"));
   });
 }

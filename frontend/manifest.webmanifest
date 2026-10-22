@@ -1,0 +1,14 @@
+{
+  "name": "ととのい黄金比",
+  "short_name": "ととのい",
+  "description": "サウナ・水風呂・外気浴の配分を記録して、自分に合う時間を見つける",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1a110c",
+  "theme_color": "#1a110c",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

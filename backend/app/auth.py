@@ -14,6 +14,8 @@ from . import db
 
 
 COOKIE_NAME = "sauna_session"
+# 同意画面(privacy.html)の文面を変えたら、この版も更新する。古い版の利用者には再同意を求める。
+CONSENT_VERSION = "2026-10-23"
 SESSION_DAYS = 30
 SCRYPT_N = 2**14
 SCRYPT_R = 8
@@ -80,7 +82,7 @@ def current_user(token: str | None) -> dict | None:
     with db.connect() as conn:
         row = conn.execute(
             """
-            SELECT users.id, users.email, users.display_name
+            SELECT users.id, users.email, users.display_name, users.consent_version
             FROM auth_sessions
             JOIN users ON users.id = auth_sessions.user_id
             WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?
@@ -89,7 +91,18 @@ def current_user(token: str | None) -> dict | None:
         ).fetchone()
     if row is None:
         return None
-    return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "consent_current": row["consent_version"] == CONSENT_VERSION,
+    }
+
+
+def remove_other_sessions(conn, user_id: int, keep_token: str | None) -> None:
+    """パスワード変更時に、いま使っている端末以外のログインを無効にする。"""
+    keep = hashlib.sha256(keep_token.encode("utf-8")).hexdigest() if keep_token else ""
+    conn.execute("DELETE FROM auth_sessions WHERE user_id = ? AND token_hash != ?", (user_id, keep))
 
 
 def require_user(token: str | None) -> dict:

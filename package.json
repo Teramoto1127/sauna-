@@ -9,7 +9,8 @@
     "start": "node scripts/dev.js",
     "test": "node scripts/test.js",
     "corpus": "node scripts/pymodule.js app.build_corpus",
-    "eval": "node scripts/pymodule.js app.evaluate"
+    "eval": "node scripts/pymodule.js app.evaluate",
+    "backup": "node scripts/pymodule.js app.backup"
   },
   "engines": {
     "node": ">=18"

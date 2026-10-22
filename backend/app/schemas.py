@@ -15,6 +15,14 @@ class RegisterIn(BaseModel):
     email: str = Field(max_length=254)
     display_name: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=8, max_length=128)
+    agree: bool = Field(description="データの扱いへの同意(必須)")
+
+    @field_validator("agree")
+    @classmethod
+    def must_agree(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("データの扱いへの同意が必要です")
+        return value
 
     @field_validator("email")
     @classmethod
@@ -31,6 +39,26 @@ class RegisterIn(BaseModel):
         if not value:
             raise ValueError("表示名を入力してください")
         return value
+
+
+class ConsentIn(BaseModel):
+    agree: bool
+
+    @field_validator("agree")
+    @classmethod
+    def must_agree(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("同意が必要です")
+        return value
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PasswordConfirmIn(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
 
 
 class LoginIn(BaseModel):
@@ -55,6 +83,7 @@ class SessionIn(BaseModel):
     sauna_temp: Optional[float] = Field(default=None, ge=40, le=130)
     water_temp: Optional[float] = Field(default=None, ge=0, le=40)
     sleep_hours: Optional[float] = Field(default=None, ge=0, le=24)
+    resting_hr: Optional[float] = Field(default=None, ge=30, le=200, description="安静時心拍(bpm)")
     fatigue: Fatigue = "mid"
     ate_before: bool = False
     score: int = Field(ge=1, le=5, description="ととのい度(1〜5)")
@@ -86,6 +115,11 @@ class PredictIn(BaseModel):
     ate_before: bool = False
     n_sets: int = Field(default=3, ge=1, le=12)
     plan: Optional[PlanIn] = Field(default=None, description="評価したい時間配分(任意)")
+    # 今日の状態。どれかが True なら、予測は出さずに注意だけを返す。
+    drank: bool = False
+    unwell: bool = False
+    restricted: bool = False
+    for_date: Optional[date] = Field(default=None, description="予測の対象日。省略時はサーバーの今日")
 
 
 class ResearchQueryIn(BaseModel):

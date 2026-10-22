@@ -7,14 +7,24 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import os
+from datetime import date
 from pathlib import Path
 import sqlite3
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.staticfiles import StaticFiles
 
-from . import analysis, auth, checks, db, ml, research, retrieval, seed
-from .schemas import LoginIn, PredictIn, RegisterIn, ResearchQueryIn, SessionIn
+from . import analysis, auth, checks, csvio, db, ml, research, retrieval, seed
+from .schemas import (
+    ConsentIn,
+    LoginIn,
+    PasswordChangeIn,
+    PasswordConfirmIn,
+    PredictIn,
+    RegisterIn,
+    ResearchQueryIn,
+    SessionIn,
+)
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
@@ -56,13 +66,17 @@ def _set_session_cookie(response: Response, token: str) -> None:
 def register(body: RegisterIn, response: Response) -> dict:
     with db.connect() as conn:
         try:
-            user = db.create_user(conn, body.email, body.display_name, auth.hash_password(body.password))
+            user = db.create_user(
+                conn, body.email, body.display_name, auth.hash_password(body.password), auth.CONSENT_VERSION
+            )
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="このメールアドレスはすでに登録されています") from exc
         # 認証導入前は全記録に所有者がなかったため、最初の新規アカウントだけが引き継ぐ。
         user["claimed_legacy_sessions"] = db.claim_legacy_sessions(conn, user["id"])
         token = auth.create_session(conn, user["id"])
     _set_session_cookie(response, token)
+    user["consent_current"] = True
+    user.pop("consent_version", None)
     return user
 
 
@@ -91,6 +105,51 @@ def logout(response: Response, session_token: str | None = Cookie(default=None, 
     response.delete_cookie(key=auth.COOKIE_NAME, httponly=True, samesite="lax")
 
 
+# ---- アカウント -----------------------------------------------------------
+
+
+def _check_password(conn: sqlite3.Connection, user_id: int, password: str) -> None:
+    row = db.fetch_user_by_id(conn, user_id)
+    if row is None or not auth.verify_password(password, row["password_hash"]):
+        raise HTTPException(status_code=403, detail="パスワードが違います")
+
+
+@app.post("/api/account/consent")
+def give_consent(body: ConsentIn, user: dict = Depends(_authenticated_user)) -> dict:
+    with db.connect() as conn:
+        db.set_consent(conn, user["id"], auth.CONSENT_VERSION)
+    return {"consent_current": True}
+
+
+@app.post("/api/account/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    body: PasswordChangeIn,
+    user: dict = Depends(_authenticated_user),
+    session_token: str | None = Cookie(default=None, alias=auth.COOKIE_NAME),
+) -> None:
+    with db.connect() as conn:
+        _check_password(conn, user["id"], body.current_password)
+        db.set_password(conn, user["id"], auth.hash_password(body.new_password))
+        auth.remove_other_sessions(conn, user["id"], session_token)
+
+
+@app.post("/api/account/delete-data")
+def delete_my_records(body: PasswordConfirmIn, user: dict = Depends(_authenticated_user)) -> dict:
+    """自分の記録だけをすべて消す(アカウントは残す)。"""
+    with db.connect() as conn:
+        _check_password(conn, user["id"], body.password)
+        return {"deleted": db.delete_all_sessions(conn, user["id"])}
+
+
+@app.post("/api/account/delete", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(body: PasswordConfirmIn, response: Response, user: dict = Depends(_authenticated_user)) -> None:
+    """アカウントと、記録・ログイン状態をすべて削除する。取り消せない。"""
+    with db.connect() as conn:
+        _check_password(conn, user["id"], body.password)
+        db.delete_user(conn, user["id"])
+    response.delete_cookie(key=auth.COOKIE_NAME, httponly=True, samesite="lax")
+
+
 # ---- セッション記録 -------------------------------------------------------
 
 
@@ -116,6 +175,42 @@ def create_session(body: SessionIn, confirmed: bool = False, user: dict = Depend
     with db.connect() as conn:
         session_id = db.insert_session(conn, data, user["id"])
     return {"id": session_id}
+
+
+@app.get("/api/export/sessions.csv")
+def export_sessions(include_sample: bool = False, user: dict = Depends(_authenticated_user)) -> Response:
+    """自分の記録をCSVで返す。サンプル(架空データ)は既定で含めない。"""
+    with db.connect() as conn:
+        sessions = db.fetch_sessions(conn, user["id"], include_sample)
+    return Response(
+        content=csvio.export_csv(sessions).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="totonoi-sessions.csv"'},
+    )
+
+
+@app.post("/api/import/sessions")
+async def import_sessions(request: Request, commit: bool = False, user: dict = Depends(_authenticated_user)) -> dict:
+    """CSVの取り込み。commit=false は確認だけ(保存しない)、commit=true で保存する。"""
+    raw = await request.body()
+    with db.connect() as conn:
+        existing = db.fetch_sessions(conn, user["id"], True)
+        result = csvio.parse_import(raw, existing)
+        if "fatal" in result:
+            raise HTTPException(status_code=400, detail=result["fatal"])
+        imported = 0
+        if commit:
+            for data in result["valid"]:
+                db.insert_session(conn, data, user["id"])
+                imported += 1
+    return {
+        "committed": commit,
+        "importable": len(result["valid"]),
+        "imported": imported,
+        "duplicates": result["duplicates"],
+        "errors": result["errors"],
+        "warnings": result["warnings"],
+    }
 
 
 @app.put("/api/sessions/{session_id}")
@@ -155,8 +250,25 @@ def dashboard(include_sample: bool = True, user: dict = Depends(_authenticated_u
 # ---- 予測 -----------------------------------------------------------------
 
 
+BLOCK_REASONS = {
+    "drank": "お酒を飲んでいる",
+    "unwell": "熱があるなど、体調がすぐれない",
+    "restricted": "医師からサウナを控えるよう言われている",
+}
+
+
 @app.post("/api/predict")
 def predict(body: PredictIn, include_sample: bool = True, user: dict = Depends(_authenticated_user)) -> dict:
+    reasons = [text for key, text in BLOCK_REASONS.items() if getattr(body, key)]
+    if reasons:
+        # 条件に当てはまる日は、サウナを勧める形の予測を出さない。
+        return {
+            "status": "blocked",
+            "reasons": reasons,
+            "message": "今日は予測を出しません。サウナは、無理をせず控えるほうがよいかもしれません。"
+            "体調に不安があるときや、医師の指示があるときは、その指示を優先してください。",
+        }
+
     with db.connect() as conn:
         sessions = db.fetch_sessions(conn, user["id"], include_sample)
 
@@ -169,7 +281,7 @@ def predict(body: PredictIn, include_sample: bool = True, user: dict = Depends(_
             "message": f"予測には {ml.MIN_SESSIONS} 件以上の記録が必要です(現在 {len(sessions)} 件)。",
         }
 
-    ctx = body.model_dump()
+    ctx = body.model_dump(exclude={"drank", "unwell", "restricted", "for_date"})
     plan = ctx.pop("plan")
     result = ml.optimize(model, ctx)
     result.update({"status": "ok", "metrics": model.metrics()})
@@ -177,7 +289,20 @@ def predict(body: PredictIn, include_sample: bool = True, user: dict = Depends(_
         result["plan"] = ml.predict_plan(
             model, ctx, plan["sauna_min"], plan["water_min"], plan["rest_min"]
         )
+    # 答え合わせ用に、提案と条件を残す(実際の記録と、あとで並べて見る)
+    with db.connect() as conn:
+        db.log_prediction(conn, user["id"], str(body.for_date or date.today()), ctx, result["best"])
     return result
+
+
+@app.get("/api/predictions/review")
+def review_predictions(user: dict = Depends(_authenticated_user)) -> dict:
+    """過去の予測と、同じ日に実際に記録した結果を並べて返す。"""
+    with db.connect() as conn:
+        preds = db.fetch_predictions(conn, user["id"])
+        # 架空のサンプル記録は、「実際の結果」として並べない
+        sessions = db.fetch_sessions(conn, user["id"], include_sample=False)
+    return analysis.review_predictions(preds, sessions)
 
 
 # ---- 医学論文 RAG ---------------------------------------------------------
