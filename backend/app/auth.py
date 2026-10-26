@@ -15,7 +15,7 @@ from . import db
 
 COOKIE_NAME = "sauna_session"
 # 同意画面(privacy.html)の文面を変えたら、この版も更新する。古い版の利用者には再同意を求める。
-CONSENT_VERSION = "2026-10-23"
+CONSENT_VERSION = "2026-10-26"
 SESSION_DAYS = 30
 SCRYPT_N = 2**14
 SCRYPT_R = 8

@@ -6,7 +6,7 @@ from datetime import date, timedelta
 import re
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Fatigue = Literal["low", "mid", "high"]
 
@@ -88,7 +88,19 @@ class SessionIn(BaseModel):
     ate_before: bool = False
     score: int = Field(ge=1, le=5, description="ととのい度(1〜5)")
     note: str = Field(default="", max_length=500)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90, description="行った場所の緯度(任意)")
+    lng: Optional[float] = Field(default=None, ge=-180, le=180, description="行った場所の経度(任意)")
     sets: list[SetIn] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def location_pair_and_round(self) -> "SessionIn":
+        if (self.lat is None) != (self.lng is None):
+            raise ValueError("緯度と経度は、両方そろえて指定してください")
+        if self.lat is not None:
+            # 家などの細かい位置が残らないよう、約110mに丸めて保存する
+            self.lat = round(self.lat, 3)
+            self.lng = round(self.lng, 3)
+        return self
 
     @field_validator("visited_on")
     @classmethod

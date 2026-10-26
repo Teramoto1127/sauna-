@@ -14,7 +14,7 @@ import sqlite3
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.staticfiles import StaticFiles
 
-from . import analysis, auth, checks, csvio, db, ml, research, retrieval, seed
+from . import analysis, auth, checks, csvio, db, places, ml, research, retrieval, seed
 from .schemas import (
     ConsentIn,
     LoginIn,
@@ -133,6 +133,14 @@ def change_password(
         auth.remove_other_sessions(conn, user["id"], session_token)
 
 
+@app.post("/api/account/clear-locations")
+def clear_my_locations(body: PasswordConfirmIn, user: dict = Depends(_authenticated_user)) -> dict:
+    """保存した位置情報だけを消す(記録は残す)。"""
+    with db.connect() as conn:
+        _check_password(conn, user["id"], body.password)
+        return {"cleared": db.clear_locations(conn, user["id"])}
+
+
 @app.post("/api/account/delete-data")
 def delete_my_records(body: PasswordConfirmIn, user: dict = Depends(_authenticated_user)) -> dict:
     """自分の記録だけをすべて消す(アカウントは残す)。"""
@@ -175,6 +183,27 @@ def create_session(body: SessionIn, confirmed: bool = False, user: dict = Depend
     with db.connect() as conn:
         session_id = db.insert_session(conn, data, user["id"])
     return {"id": session_id}
+
+
+@app.get("/api/facilities/nearby")
+def facilities_nearby(
+    lat: float = Query(ge=-90, le=90),
+    lng: float = Query(ge=-180, le=180),
+    external: bool = True,
+    user: dict = Depends(_authenticated_user),
+) -> dict:
+    """現在地の近くの施設。自分の記録から(known)と、地図データから(suggested)。"""
+    lat, lng = places.round_coord(lat), places.round_coord(lng)
+    with db.connect() as conn:
+        sessions = db.fetch_sessions(conn, user["id"], include_sample=False)
+    known = places.known_nearby(sessions, lat, lng)
+    result = {"known": known, "auto_pick_m": places.AUTO_PICK_M, "suggested": [], "suggest_available": None}
+    if external:
+        ext = places.external_nearby(lat, lng)
+        names = {k["facility"] for k in known}
+        result["suggested"] = [p for p in ext["places"] if p["name"] not in names]
+        result["suggest_available"] = ext["available"]
+    return result
 
 
 @app.get("/api/export/sessions.csv")

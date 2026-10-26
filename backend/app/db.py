@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     water_temp  REAL,                          -- 水風呂の温度 (℃)
     sleep_hours REAL,                          -- 前日の睡眠時間
     resting_hr  REAL,                          -- 安静時心拍(bpm・任意。いまは予測に使わない)
+    lat         REAL,                          -- 行った場所(約110mに丸めた緯度。任意)
+    lng         REAL,
     fatigue     TEXT    NOT NULL DEFAULT 'mid' CHECK (fatigue IN ('low', 'mid', 'high')),
     ate_before  INTEGER NOT NULL DEFAULT 0,    -- サウナ前に食事をしたか
     score       INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
@@ -103,6 +105,9 @@ def init_db() -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
         if "resting_hr" not in columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN resting_hr REAL")
+        if "lat" not in columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN lat REAL")
+            conn.execute("ALTER TABLE sessions ADD COLUMN lng REAL")
         if "user_id" not in columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER REFERENCES users(id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON sessions (user_id, visited_on)")
@@ -166,8 +171,8 @@ def insert_session(conn: sqlite3.Connection, data: dict, user_id: int, is_sample
         """
         INSERT INTO sessions
             (user_id, visited_on, facility, sauna_temp, water_temp, sleep_hours, resting_hr,
-             fatigue, ate_before, score, note, is_sample)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             fatigue, ate_before, score, note, is_sample, lat, lng)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -182,6 +187,8 @@ def insert_session(conn: sqlite3.Connection, data: dict, user_id: int, is_sample
             data["score"],
             data.get("note", ""),
             1 if is_sample else 0,
+            data.get("lat"),
+            data.get("lng"),
         ),
     )
     session_id = cur.lastrowid
@@ -230,6 +237,8 @@ def fetch_sessions(conn: sqlite3.Connection, user_id: int, include_sample: bool 
             "water_temp": r["water_temp"],
             "sleep_hours": r["sleep_hours"],
             "resting_hr": r["resting_hr"],
+            "lat": r["lat"],
+            "lng": r["lng"],
             "fatigue": r["fatigue"],
             "ate_before": bool(r["ate_before"]),
             "score": r["score"],
@@ -246,7 +255,8 @@ def update_session(conn: sqlite3.Connection, session_id: int, data: dict, user_i
     cur = conn.execute(
         """
         UPDATE sessions SET visited_on = ?, facility = ?, sauna_temp = ?, water_temp = ?,
-               sleep_hours = ?, resting_hr = ?, fatigue = ?, ate_before = ?, score = ?, note = ?
+               sleep_hours = ?, resting_hr = ?, fatigue = ?, ate_before = ?, score = ?, note = ?,
+               lat = ?, lng = ?
         WHERE id = ? AND user_id = ?
         """,
         (
@@ -260,6 +270,8 @@ def update_session(conn: sqlite3.Connection, session_id: int, data: dict, user_i
             1 if data.get("ate_before") else 0,
             data["score"],
             data.get("note", ""),
+            data.get("lat"),
+            data.get("lng"),
             session_id,
             user_id,
         ),
@@ -301,6 +313,13 @@ def fetch_predictions(conn: sqlite3.Connection, user_id: int, limit: int = 30) -
         "SELECT * FROM predictions WHERE user_id = ? ORDER BY for_date DESC, id DESC LIMIT ?", (user_id, limit)
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def clear_locations(conn: sqlite3.Connection, user_id: int) -> int:
+    """保存した位置情報だけを消す(記録そのものは残す)。"""
+    return conn.execute(
+        "UPDATE sessions SET lat = NULL, lng = NULL WHERE user_id = ? AND lat IS NOT NULL", (user_id,)
+    ).rowcount
 
 
 def delete_session(conn: sqlite3.Connection, session_id: int, user_id: int) -> bool:

@@ -80,6 +80,12 @@
             <input type="text" id="f-facility" list="facility-list" maxlength="100" placeholder="例: 〇〇サウナ">
             <datalist id="facility-list"></datalist>
             <div class="chips" id="facility-chips" aria-label="よく行く施設"></div>
+            <div class="locate">
+              <button type="button" class="btn ghost" id="locate-btn"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-6.2 7-11.5A7 7 0 005 9.5C5 14.8 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg> いまの場所から選ぶ</button>
+              <label class="check small"><input type="checkbox" id="auto-locate"> <span>開いたときに自動で選ぶ</span></label>
+            </div>
+            <p class="help" id="locate-status" role="status" hidden></p>
+            <div class="chips" id="locate-results" aria-label="近くの施設"></div>
           </div>
         </div>
 
@@ -349,6 +355,7 @@
             <div class="field"><label for="del-password">パスワード</label><input type="password" id="del-password" autocomplete="current-password" maxlength="128"></div>
             <p class="error" id="del-error" role="alert" hidden></p>
             <div class="del-actions">
+              <button type="button" class="btn ghost" id="del-locations">保存した位置情報だけ削除</button>
               <button type="button" class="btn ghost" id="del-data">記録をすべて削除</button>
               <button type="button" class="btn ghost" id="del-account">アカウントごと削除</button>
             </div>

@@ -415,3 +415,76 @@ def test_pwa_files_are_served(client):
     m = client.get("/manifest.webmanifest")
     assert m.status_code == 200 and m.json()["start_url"] == "/"
     assert client.get("/icon.svg").status_code == 200
+
+
+# ---- 位置情報 --------------------------------------------------------------------
+
+
+@pytest.fixture()
+def no_external(monkeypatch):
+    monkeypatch.setenv("SAUNA_DISABLE_EXTERNAL_PLACES", "1")
+
+
+def test_location_is_rounded_paired_and_optional(client):
+    assert client.post("/api/sessions", json=payload(lat=35.68)).status_code == 422  # 片方だけは不可
+    assert client.post("/api/sessions", json=payload(lat=95, lng=139)).status_code == 422
+    sid = client.post("/api/sessions", json=payload(lat=35.681234, lng=139.767891)).json()["id"]
+    s = client.get("/api/sessions").json()[0]
+    assert (s["lat"], s["lng"]) == (35.681, 139.768)  # 約110mに丸めて保存
+    # 位置なしで編集すると位置は消える(画面は、編集時に元の位置を送り直す)
+    client.put(f"/api/sessions/{sid}", json=payload())
+    assert client.get("/api/sessions").json()[0]["lat"] is None
+
+
+def test_nearby_uses_own_records_and_not_other_users(client, no_external):
+    client.post("/api/sessions", json=payload(facility="北の湯", lat=35.6801, lng=139.7601))
+    r = client.get("/api/facilities/nearby?lat=35.6802&lng=139.7602").json()
+    assert [k["facility"] for k in r["known"]] == ["北の湯"]
+    assert r["suggested"] == [] and r["suggest_available"] is False
+    assert client.get("/api/facilities/nearby?lat=36.5&lng=139.7602").json()["known"] == []
+
+    client.post("/api/auth/logout")
+    client.post("/api/auth/register", json={"email": "z@example.com", "display_name": "Z", "password": "another-pass-77", "agree": True})
+    assert client.get("/api/facilities/nearby?lat=35.6802&lng=139.7602").json()["known"] == []  # 他人の場所は見えない
+
+
+def test_nearby_requires_login_and_valid_coordinates(client):
+    assert client.get("/api/facilities/nearby?lat=200&lng=0").status_code == 422
+    client.post("/api/auth/logout")
+    assert client.get("/api/facilities/nearby?lat=35&lng=139").status_code == 401
+
+
+def test_nearby_suggestions_exclude_names_already_known(client, monkeypatch):
+    from app import places as _places
+
+    client.post("/api/sessions", json=payload(facility="北の湯", lat=35.6801, lng=139.7601))
+    monkeypatch.setattr(_places, "external_nearby", lambda lat, lng: {
+        "available": True, "places": [{"name": "北の湯", "distance_m": 10}, {"name": "新しい湯", "distance_m": 200}]})
+    r = client.get("/api/facilities/nearby?lat=35.6801&lng=139.7601").json()
+    assert [p["name"] for p in r["suggested"]] == ["新しい湯"] and r["suggest_available"] is True
+
+
+def test_clear_locations_keeps_records(client):
+    client.post("/api/sessions", json=payload(lat=35.681, lng=139.767))
+    assert client.post("/api/account/clear-locations", json={"password": "nope"}).status_code == 403
+    assert client.post("/api/account/clear-locations", json={"password": "correct-horse-42"}).json() == {"cleared": 1}
+    (s,) = client.get("/api/sessions").json()
+    assert s["lat"] is None and s["facility"] == "テスト施設"
+
+
+def test_location_is_not_in_csv_export(client):
+    client.post("/api/sessions", json=payload(lat=35.681, lng=139.767))
+    text = client.get("/api/export/sessions.csv").content.decode("utf-8-sig")
+    assert "35.681" not in text and "lat" not in text.splitlines()[0]
+
+
+def test_nearby_without_external_never_calls_the_map_service(client, monkeypatch):
+    from app import places as _places
+
+    def boom(lat, lng):
+        raise AssertionError("外部へ問い合わせてはいけない")
+
+    monkeypatch.setattr(_places, "external_nearby", boom)
+    client.post("/api/sessions", json=payload(facility="北の湯", lat=35.6801, lng=139.7601))
+    r = client.get("/api/facilities/nearby?lat=35.6801&lng=139.7601&external=false").json()
+    assert [k["facility"] for k in r["known"]] == ["北の湯"] and r["suggest_available"] is None

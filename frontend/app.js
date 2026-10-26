@@ -20,6 +20,8 @@ const state = {
   view: "record",
   user: null,
   editingId: null,
+  coords: null,          // この記録に保存する位置 {lat, lng}
+  coordsFacility: "",    // その位置を選んだときの施設名(名前を変えたら位置は捨てる)
   includeSample: true,
   sessions: [], // 新しい順
   golden: null,
@@ -130,6 +132,8 @@ async function startAuthenticatedApp(user) {
     if (last) { $("#f-facility").value = last.facility; applyFacilityDefaults(last.facility); renderFacilityList(); }
   }
   if (restored) toast("途中まで入力していた内容を戻しました");
+  // 「開いたときに自動で選ぶ」がオンなら、自分の記録の施設が近くにあるときだけ選ぶ
+  if (!restored && !state.editingId && $("#auto-locate").checked) locateFacility({ silent: true });
   try {
     const flash = sessionStorage.getItem("sauna.flash");
     if (flash) { sessionStorage.removeItem("sauna.flash"); toast(flash); }
@@ -455,6 +459,7 @@ function collectBody() {
       ate_before: $('input[name="ate"]:checked').value === "yes",
       score: Number(score.value),
       note: $("#f-note").value.trim(),
+      ...(currentCoords() || {}),
       sets,
     },
   };
@@ -518,6 +523,8 @@ function startEdit(id) {
   setRadio("ate", s.ate_before ? "yes" : "no");
   setRadio("score", s.score);
   $("#f-note").value = s.note || "";
+  state.coords = s.lat != null && s.lng != null ? { lat: s.lat, lng: s.lng } : null;
+  state.coordsFacility = s.facility || "";
   $("#sets").innerHTML = "";
   s.sets.forEach((x) => addSetRow(x));
   $("#form-title").textContent = "記録を編集する";
@@ -528,6 +535,10 @@ function startEdit(id) {
 
 function endEdit() {
   state.editingId = null;
+  state.coords = null;
+  state.coordsFacility = "";
+  $("#locate-results").innerHTML = "";
+  setLocateStatus("");
   clearTimeout(draftTimer);
   $("#form-title").textContent = "今日のサウナ";
   $("#edit-banner").hidden = true;
@@ -537,6 +548,94 @@ function endEdit() {
 }
 
 $("#cancel-edit").addEventListener("click", () => { showWarnings(null); showError("#form-error", ""); endEdit(); });
+
+/* ---------- いまの場所から施設を選ぶ ---------- */
+
+function currentCoords() {
+  const name = $("#f-facility").value.trim();
+  return state.coords && name && name === state.coordsFacility ? { lat: state.coords.lat, lng: state.coords.lng } : null;
+}
+
+function setLocateStatus(text) {
+  const el = $("#locate-status");
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("このブラウザでは、位置情報を使えません。"));
+    if (window.isSecureContext === false) return reject(new Error("位置情報は、https(または localhost)のページでだけ使えます。"));
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => reject(new Error(
+        err.code === 1 ? "位置情報の使用が許可されていません。ブラウザのアドレス欄の設定から、許可してください。"
+        : err.code === 3 ? "現在地を調べるのに時間がかかりました。もう一度お試しください。"
+        : "現在地を調べられませんでした。")),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+    );
+  });
+}
+
+function pickFacility(name, fix) {
+  $("#f-facility").value = name;
+  state.coords = fix;
+  state.coordsFacility = name;
+  if (applyFacilityDefaults(name)) toast("前回の温度を入れました");
+  $("#locate-results").innerHTML = "";
+  setLocateStatus(`「${name}」を選びました。`);
+  renderFacilityList();
+  saveDraft();
+}
+
+function renderLocateResults(r, fix) {
+  const chip = (name, d, extra, kind) =>
+    `<button type="button" class="chip ${kind}" data-name="${esc(name)}">${esc(name)}<small>${d}m${extra}</small></button>`;
+  const known = r.known.map((k) => chip(k.facility, k.distance_m, `・${k.n_sessions}回`, "known")).join("");
+  const sug = r.suggested.map((p) => chip(p.name, p.distance_m, "", "sug")).join("");
+  $("#locate-results").innerHTML = known + sug;
+  $$("#locate-results .chip").forEach((b) => b.addEventListener("click", () => pickFacility(b.dataset.name, fix)));
+  if (!known && !sug) {
+    setLocateStatus(r.suggest_available === false
+      ? "近くの施設は見つかりませんでした(施設の検索にも接続できませんでした)。名前を入力してください。"
+      : "近くの施設は見つかりませんでした。名前を入力してください。");
+  } else {
+    setLocateStatus(known ? "近くの施設です。選んでください。" : "記録のない場所です。近くの施設から選ぶか、名前を入力してください。");
+  }
+}
+
+async function locateFacility({ silent = false } = {}) {
+  const btn = $("#locate-btn");
+  const before = $("#f-facility").value.trim();
+  btn.disabled = true;
+  if (!silent) { setLocateStatus("現在地を調べています…"); $("#locate-results").innerHTML = ""; }
+  try {
+    const fix = await getPosition();
+    // 自動のときは、外部の地図サービスへは問い合わせない(自分の記録だけで選ぶ)
+    const r = await api(`/facilities/nearby?lat=${fix.lat}&lng=${fix.lng}&external=${!silent}`);
+    if (silent) {
+      const best = r.known[0];
+      // 待っている間に利用者が施設名を変えていたら、触らない
+      if (best && best.distance_m <= r.auto_pick_m && $("#f-facility").value.trim() === before) {
+        pickFacility(best.facility, fix);
+        toast(`場所から「${best.facility}」を選びました`);
+      }
+    } else {
+      renderLocateResults(r, fix);
+    }
+  } catch (err) {
+    if (!silent) setLocateStatus(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("#locate-btn").addEventListener("click", () => locateFacility());
+try { $("#auto-locate").checked = localStorage.getItem("sauna.autoLocate") === "1"; } catch (_) { /* 続行 */ }
+$("#auto-locate").addEventListener("change", (e) => {
+  try { localStorage.setItem("sauna.autoLocate", e.target.checked ? "1" : "0"); } catch (_) { /* 続行 */ }
+  if (e.target.checked) locateFacility();
+});
 
 // 自分の記録(サンプルは除く)の中で、回数の多い施設を上位5件
 function topFacilities() {
@@ -572,6 +671,7 @@ function renderFacilityList() {
 
 $("#f-facility").addEventListener("change", () => {
   const name = $("#f-facility").value.trim();
+  if (name !== state.coordsFacility) state.coords = null;
   if (name && applyFacilityDefaults(name)) toast("前回の温度を入れました");
   renderFacilityList();
 });
@@ -1216,6 +1316,14 @@ function armedButton(btn, label, action) {
     catch (err) { showError("#del-error", err.message); }
   });
 }
+
+armedButton($("#del-locations"), "保存した位置情報だけ削除", async (password) => {
+  const r = await api("/account/clear-locations", { method: "POST", body: JSON.stringify({ password }) });
+  $("#del-password").value = "";
+  state.coords = null;
+  toast(`${r.cleared}件の位置情報を削除しました`);
+  await refresh();
+});
 
 armedButton($("#del-data"), "記録をすべて削除", async (password) => {
   const r = await api("/account/delete-data", { method: "POST", body: JSON.stringify({ password }) });
