@@ -477,3 +477,8 @@ fieldset.risk { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid v
 .caution h2 { color: var(--danger); }
 
 .goal { display: grid; gap: 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chips:empty { display: none; }
+.chip { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 99px; border: 1px solid rgba(242, 179, 92, 0.4); background: transparent; color: var(--ink); cursor: pointer; }
+.chip.is-on { background: var(--accent); border-color: var(--accent); color: var(--on-ink); font-weight: 700; }

@@ -125,6 +125,10 @@ async function startAuthenticatedApp(user) {
   const restored = restoreDraft();
   resumeTimer();
   await refresh();
+  if (!restored && !state.editingId && !$("#f-facility").value.trim()) {
+    const last = state.sessions.find((x) => !x.is_sample && x.facility);
+    if (last) { $("#f-facility").value = last.facility; applyFacilityDefaults(last.facility); renderFacilityList(); }
+  }
   if (restored) toast("途中まで入力していた内容を戻しました");
   try {
     const flash = sessionStorage.getItem("sauna.flash");
@@ -534,10 +538,43 @@ function endEdit() {
 
 $("#cancel-edit").addEventListener("click", () => { showWarnings(null); showError("#form-error", ""); endEdit(); });
 
+// 自分の記録(サンプルは除く)の中で、回数の多い施設を上位5件
+function topFacilities() {
+  const counts = new Map();
+  state.sessions.filter((x) => !x.is_sample && x.facility).forEach((x) => counts.set(x.facility, (counts.get(x.facility) || 0) + 1));
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 5).map(([name]) => name);
+}
+
+// その施設の前回の温度を、空欄のときだけ入れる(入力済みの値は上書きしない)
+function applyFacilityDefaults(name) {
+  const last = state.sessions.find((x) => !x.is_sample && x.facility === name);
+  if (!last) return false;
+  let filled = false;
+  [["#f-sauna-temp", last.sauna_temp], ["#f-water-temp", last.water_temp]].forEach(([id, v]) => {
+    if (v != null && $(id).value === "") { $(id).value = v; filled = true; }
+  });
+  return filled;
+}
+
 function renderFacilityList() {
   const names = [...new Set(state.sessions.map((s) => s.facility).filter(Boolean))];
   $("#facility-list").innerHTML = names.map((n) => `<option value="${esc(n)}"></option>`).join("");
+  const current = $("#f-facility").value.trim();
+  $("#facility-chips").innerHTML = topFacilities().map((n) =>
+    `<button type="button" class="chip${n === current ? " is-on" : ""}" data-name="${esc(n)}" aria-pressed="${n === current}">${esc(n)}</button>`).join("");
+  $$("#facility-chips .chip").forEach((btn) => btn.addEventListener("click", () => {
+    $("#f-facility").value = btn.dataset.name;
+    if (applyFacilityDefaults(btn.dataset.name)) toast("前回の温度を入れました");
+    renderFacilityList();
+    saveDraft();
+  }));
 }
+
+$("#f-facility").addEventListener("change", () => {
+  const name = $("#f-facility").value.trim();
+  if (name && applyFacilityDefaults(name)) toast("前回の温度を入れました");
+  renderFacilityList();
+});
 
 /* ---------- 最近の記録 ---------- */
 
