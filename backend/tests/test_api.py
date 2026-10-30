@@ -488,3 +488,23 @@ def test_nearby_without_external_never_calls_the_map_service(client, monkeypatch
     client.post("/api/sessions", json=payload(facility="北の湯", lat=35.6801, lng=139.7601))
     r = client.get("/api/facilities/nearby?lat=35.6801&lng=139.7601&external=false").json()
     assert [k["facility"] for k in r["known"]] == ["北の湯"] and r["suggest_available"] is None
+
+def test_facility_cards_and_rename_merge(client):
+    client.post("/api/sessions", json=payload(facility="北の湯", visited_on="2026-10-01"))
+    client.post("/api/sessions", json=payload(facility="北の 湯", visited_on="2026-10-02"))
+    client.post("/api/sample?n=5")
+    names = {c["facility"] for c in client.get("/api/facilities").json()}
+    assert names == {"北の湯", "北の 湯"}  # サンプル施設は出ない
+
+    assert client.post("/api/facilities/rename", json={"old": "なし", "new": "X"}).status_code == 404
+    assert client.post("/api/facilities/rename", json={"old": "北の 湯", "new": "北の湯"}).json() == {"updated": 1}
+    (c,) = client.get("/api/facilities").json()
+    assert c["facility"] == "北の湯" and c["n_visits"] == 2
+
+
+def test_facilities_require_login_and_are_isolated(client):
+    client.post("/api/sessions", json=payload(facility="北の湯"))
+    client.post("/api/auth/logout")
+    assert client.get("/api/facilities").status_code == 401
+    client.post("/api/auth/register", json={"email": "q@example.com", "display_name": "Q", "password": "another-pass-77", "agree": True})
+    assert client.get("/api/facilities").json() == []

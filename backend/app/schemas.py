@@ -146,3 +146,15 @@ class ResearchQueryIn(BaseModel):
         if len(value) < 2:
             raise ValueError("質問を2文字以上で入力してください")
         return value
+
+class FacilityRenameIn(BaseModel):
+    old: str = Field(min_length=1, max_length=100)
+    new: str = Field(min_length=1, max_length=100)
+
+    @field_validator("old", "new")
+    @classmethod
+    def stripped(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("施設名を入力してください")
+        return value

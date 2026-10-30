@@ -131,3 +131,20 @@ def test_by_condition_handles_no_sessions():
     cond = analysis.by_condition([])
     assert all(g["n_sessions"] == 0 and g["golden"] is None for d in cond["dimensions"] for g in d["groups"])
     assert len(cond["gaps"]) == sum(len(d["groups"]) for d in cond["dimensions"])
+
+def test_facility_cards_aggregate_and_skip_samples():
+    from datetime import date
+    base = dict(sauna_temp=90, water_temp=15, sleep_hours=7, fatigue="mid", ate_before=False, is_sample=False,
+                sets=[{"set_no": 1, "sauna_min": 9, "water_min": 1, "rest_min": 10}])
+    sessions = [
+        {**base, "id": 1, "visited_on": "2026-09-01", "facility": "北の湯", "score": 3, "note": ""},
+        {**base, "id": 2, "visited_on": "2026-10-01", "facility": "北の湯", "score": 5, "note": "ロウリュ良い"},
+        {**base, "id": 3, "visited_on": "2026-10-02", "facility": "サンプル施設A", "score": 4, "note": "", "is_sample": True},
+        {**base, "id": 4, "visited_on": "2026-10-03", "facility": "", "score": 4, "note": ""},
+    ]
+    (c,) = analysis.facility_cards(sessions, today=date(2026, 10, 31), sleep_hours=7, fatigue="mid")
+    assert c["facility"] == "北の湯" and c["n_visits"] == 2 and c["days_since_last"] == 30
+    assert c["avg_score"] == 4.0 and c["reliable"] is False and c["trend"] is None
+    assert c["notes"][0]["note"] == "ロウリュ良い"
+    assert c["fit"]["n_sessions"] == 2 and c["fit"]["enough"] is False
+    assert c["water_temp"] == {"median": 15.0, "min": 15.0, "max": 15.0}
