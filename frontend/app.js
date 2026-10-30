@@ -177,6 +177,7 @@ function showView(name) {
   $$(".view").forEach((v) => { v.hidden = v.id !== `view-${name}`; });
   renderActive();
   if (name === "predict") loadReview();
+  if (name === "facilities") loadFacilities();
   window.scrollTo({ top: 0 });
 }
 
@@ -221,6 +222,7 @@ function renderActive() {
   if (state.view === "golden") renderGolden();
   if (state.view === "history") renderHistory();
   if (state.view === "dashboard") renderDashboard();
+  if (state.view === "facilities") renderFacilities();
 }
 
 $$(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
@@ -1063,6 +1065,105 @@ function renderResearch(result) {
       <p class="research-safety">${esc(result.safety_note)}</p>
     </div>
     ${cards || `<div class="card"><p class="empty">別の言い回しで試してください。例: 「sauna safety」「cold water immersion recovery」</p></div>`}`;
+}
+
+/* ---------- 施設カルテ ---------- */
+
+const facilityUi = { sleep: "", fatigue: "" };
+
+async function loadFacilities() {
+  const q = new URLSearchParams();
+  if (facilityUi.sleep !== "") q.set("sleep_hours", facilityUi.sleep);
+  if (facilityUi.fatigue) q.set("fatigue", facilityUi.fatigue);
+  try {
+    state.facilities = await api(`/facilities?${q}`);
+    renderFacilities();
+  } catch (err) { toast(err.message); }
+}
+
+$("#fac-sleep").addEventListener("change", (e) => { facilityUi.sleep = e.target.value.trim(); loadFacilities(); });
+$("#fac-fatigue").addEventListener("change", (e) => { facilityUi.fatigue = e.target.value; loadFacilities(); });
+
+function daysAgoText(n) {
+  if (n === 0) return "今日";
+  if (n < 31) return `${n}日前`;
+  if (n < 365) return `${Math.floor(n / 30)}か月前`;
+  return `${Math.floor(n / 365)}年以上前`;
+}
+
+function rangeText(r, unit) {
+  if (!r) return "記録なし";
+  return r.min === r.max ? `${r.median}${unit}` : `${r.median}${unit}(${r.min}〜${r.max})`;
+}
+
+function renderFacilityFit(cards) {
+  const box = $("#facility-fit");
+  if (facilityUi.sleep === "" && !facilityUi.fatigue) { box.innerHTML = ""; return; }
+  const ranked = cards.filter((c) => c.fit && c.fit.enough).sort((a, b) => b.fit.avg_score - a.fit.avg_score).slice(0, 3);
+  if (!ranked.length) {
+    box.innerHTML = `<p class="meta">同じ体調で ${3} 回以上行った施設がまだありません。記録がたまると出ます。</p>`;
+    return;
+  }
+  box.innerHTML = ranked.map((c) => `<div class="fac-row">
+      <div class="fac-head">${esc(c.facility)}<span>同じ体調で ${c.fit.n_sessions}回 / 平均 ${fmt1(c.fit.avg_score)}${c.fit.reliable ? "" : ' <em class="tag">参考程度</em>'}</span></div>
+    </div>`).join("") +
+    `<p class="meta">少ない回数の平均はぶれます。決めつけず、目安として使ってください。</p>`;
+}
+
+function facilityCardHtml(c) {
+  const trend = c.trend == null ? "" : c.trend >= 0.5 ? " ↗ 最近は高め" : c.trend <= -0.5 ? " ↘ 最近は低め" : " → 横ばい";
+  const map = c.location
+    ? `<a class="paper-link" href="https://www.openstreetmap.org/?mlat=${c.location.lat}&mlon=${c.location.lng}#map=17/${c.location.lat}/${c.location.lng}" target="_blank" rel="noopener noreferrer">地図で見る ↗</a>` : "";
+  const notes = c.notes.length
+    ? `<ul class="plain">${c.notes.map((n) => `<li>${esc(n.visited_on)}(ととのい度${n.score}): ${esc(n.note)}</li>`).join("")}</ul>`
+    : `<p class="meta">メモはまだありません。記録のメモ欄に書くと、ここに時系列で並びます。</p>`;
+  return `<details class="card facility-card">
+    <summary>
+      <span class="fac-head">${esc(c.facility)}<span>${c.n_visits}回 / 平均 ${fmt1(c.avg_score)}${c.reliable ? "" : ' <em class="tag">参考程度</em>'}</span></span>
+      <span class="meta">最後に行ったのは ${esc(daysAgoText(c.days_since_last))}(${esc(c.last_visit)})</span>
+    </summary>
+    <div class="facility-body">
+      <p>${dots(Math.round(c.avg_score))}<span class="meta">${esc(trend)}</span></p>
+      <p class="meta">初訪問 ${esc(c.first_visit)} ・ 直近の点数 ${c.recent_scores.join(" → ")}</p>
+      <p class="meta">サウナ室 ${esc(rangeText(c.sauna_temp, "℃"))} ・ 水風呂 ${esc(rangeText(c.water_temp, "℃"))} ・ いつもは ${c.typical_sets} セット</p>
+      ${c.golden ? `${phaseBar(c.golden)}<p class="meta">${esc(c.golden.label)}(ととのい度4以上 ${c.golden.n_sessions}件)</p>`
+                 : `<p class="meta">ととのい度4以上の記録がまだありません。</p>`}
+      ${c.best ? `<p class="meta">ベスト: ${esc(c.best.visited_on)}(ととのい度${c.best.score}・${fmt1(c.best.sauna_min)}/${fmt1(c.best.water_min)}/${fmt1(c.best.rest_min)}分)</p>` : ""}
+      ${map}
+      <h3>メモの履歴</h3>${notes}
+      <form class="rename-form" data-old="${esc(c.facility)}">
+        <label>名前の直し・統合</label>
+        <div class="rename-row">
+          <input type="text" maxlength="100" value="${esc(c.facility)}" aria-label="新しい施設名">
+          <button type="submit" class="btn ghost">変更する</button>
+        </div>
+        <p class="hint">すでにある施設名にすると、記録がその施設にまとまります。</p>
+      </form>
+    </div>
+  </details>`;
+}
+
+function renderFacilities() {
+  const cards = state.facilities;
+  const box = $("#facility-cards");
+  if (!cards) { box.innerHTML = ""; return; }
+  renderFacilityFit(cards);
+  if (!cards.length) {
+    box.innerHTML = `<div class="card"><p class="empty">施設名を入れて記録すると、ここにカルテができます。</p></div>`;
+    return;
+  }
+  box.innerHTML = cards.map(facilityCardHtml).join("");
+  $$(".rename-form", box).forEach((form) => form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const old = form.dataset.old;
+    const next = $("input", form).value.trim();
+    if (!next || next === old) return;
+    try {
+      const r = await api("/facilities/rename", { method: "POST", body: JSON.stringify({ old, new: next }) });
+      toast(`${r.updated}件の記録の施設名を変えました`);
+      await Promise.all([loadFacilities(), refresh()]);
+    } catch (err) { toast(err.message); }
+  }));
 }
 
 /* ---------- 振り返り ---------- */

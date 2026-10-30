@@ -10,6 +10,9 @@ from collections import defaultdict
 from statistics import mean
 from typing import Optional
 
+from datetime import date
+from statistics import mean, median
+
 HIGH_SCORE = 4          # 「ととのった」とみなす最低スコア
 COLD_WATER_C = 14.0     # 「冷たい水風呂」とみなす温度(以下)
 
@@ -299,3 +302,96 @@ def dashboard(sessions: list[dict]) -> dict:
             for s in sessions
         ],
     }
+
+# ---- 施設カルテ ------------------------------------------------------------
+
+MIN_FACILITY_FIT = 3   # 「今日の体調に合う」を出すのに必要な、同じ条件での訪問数
+NOTES_SHOWN = 10
+
+
+def _spread(values: list) -> Optional[dict]:
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return None
+    return {"median": round(median(vals), 1), "min": round(min(vals), 1), "max": round(max(vals), 1)}
+
+
+def _sleep_bucket(hours: Optional[float]) -> Optional[str]:
+    if hours is None:
+        return None
+    return "short" if hours < SLEEP_SHORT_H else "long" if hours >= SLEEP_LONG_H else "mid"
+
+
+def _fit(items: list[dict], sleep_hours: Optional[float], fatigue: Optional[str]) -> Optional[dict]:
+    """今日と同じ体調(睡眠の区分・疲れ)だった訪問だけの平均。条件が未指定なら None。"""
+    if sleep_hours is None and fatigue is None:
+        return None
+    want_sleep = _sleep_bucket(sleep_hours)
+    match = [
+        s for s in items
+        if (want_sleep is None or _sleep_bucket(s["sleep_hours"]) == want_sleep)
+        and (fatigue is None or s["fatigue"] == fatigue)
+    ]
+    return {
+        "n_sessions": len(match),
+        "avg_score": round(mean(s["score"] for s in match), 2) if match else None,
+        "enough": len(match) >= MIN_FACILITY_FIT,
+        "reliable": len(match) >= MIN_GROUP,
+    }
+
+
+def facility_cards(
+    sessions: list[dict],
+    today: Optional[date] = None,
+    sleep_hours: Optional[float] = None,
+    fatigue: Optional[str] = None,
+) -> list[dict]:
+    """施設ごとのカルテ。サンプル・施設名なしの記録は含めない。訪問が多い順。"""
+    today = today or date.today()
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for s in sessions:
+        if s.get("is_sample") or not s["facility"] or not s["sets"]:
+            continue
+        groups[s["facility"]].append(s)
+
+    cards = []
+    for name, items in groups.items():
+        items = sorted(items, key=lambda s: (s["visited_on"], s["id"]))
+        scores = [s["score"] for s in items]
+        last = items[-1]
+
+        trend = None  # 直近3回の平均 - それ以前の平均(6回以上あるときだけ)
+        if len(items) >= 6:
+            trend = round(mean(scores[-3:]) - mean(scores[:-3]), 2)
+
+        located = [s for s in items if s.get("lat") is not None and s.get("lng") is not None]
+        location = (
+            {"lat": round(mean(s["lat"] for s in located), 4), "lng": round(mean(s["lng"] for s in located), 4)}
+            if located else None
+        )
+        notes = [
+            {"id": s["id"], "visited_on": s["visited_on"], "score": s["score"], "note": s["note"]}
+            for s in reversed(items) if s["note"].strip()
+        ][:NOTES_SHOWN]
+
+        cards.append({
+            "facility": name,
+            "n_visits": len(items),
+            "first_visit": items[0]["visited_on"],
+            "last_visit": last["visited_on"],
+            "days_since_last": max(0, (today - date.fromisoformat(last["visited_on"])).days),
+            "avg_score": round(mean(scores), 2),
+            "recent_scores": scores[-10:],
+            "trend": trend,
+            "reliable": len(items) >= MIN_GROUP,
+            "sauna_temp": _spread([s["sauna_temp"] for s in items]),
+            "water_temp": _spread([s["water_temp"] for s in items]),
+            "typical_sets": int(round(median(len(s["sets"]) for s in items))),
+            "golden": golden(items),
+            "best": _best_session(items),
+            "location": location,
+            "notes": notes,
+            "fit": _fit(items, sleep_hours, fatigue),
+        })
+    cards.sort(key=lambda c: (-c["n_visits"], c["facility"]))
+    return cards

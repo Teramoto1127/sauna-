@@ -24,6 +24,7 @@ from .schemas import (
     RegisterIn,
     ResearchQueryIn,
     SessionIn,
+    FacilityRenameIn,
 )
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -205,6 +206,26 @@ def facilities_nearby(
         result["suggest_available"] = ext["available"]
     return result
 
+@app.get("/api/facilities")
+def facility_cards(
+    sleep_hours: float | None = Query(default=None, ge=0, le=24),
+    fatigue: str | None = Query(default=None, pattern="^(low|mid|high)$"),
+    user: dict = Depends(_authenticated_user),
+) -> list[dict]:
+    """施設ごとのカルテ。sleep_hours / fatigue を渡すと、同じ体調だった日の平均(fit)も付く。"""
+    with db.connect() as conn:
+        sessions = db.fetch_sessions(conn, user["id"], include_sample=False)
+    return analysis.facility_cards(sessions, sleep_hours=sleep_hours, fatigue=fatigue)
+
+
+@app.post("/api/facilities/rename")
+def rename_facility(body: FacilityRenameIn, user: dict = Depends(_authenticated_user)) -> dict:
+    """表記ゆれの修正。変更先が既存の施設名なら、その施設に統合される。"""
+    with db.connect() as conn:
+        updated = db.rename_facility(conn, user["id"], body.old, body.new)
+    if updated == 0:
+        raise HTTPException(status_code=404, detail="その施設の記録が見つかりません")
+    return {"updated": updated}
 
 @app.get("/api/export/sessions.csv")
 def export_sessions(include_sample: bool = False, user: dict = Depends(_authenticated_user)) -> Response:

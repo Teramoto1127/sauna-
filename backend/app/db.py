@@ -330,3 +330,10 @@ def delete_session(conn: sqlite3.Connection, session_id: int, user_id: int) -> b
 def delete_samples(conn: sqlite3.Connection, user_id: int) -> int:
     cur = conn.execute("DELETE FROM sessions WHERE is_sample = 1 AND user_id = ?", (user_id,))
     return cur.rowcount
+
+def rename_facility(conn: sqlite3.Connection, user_id: int, old: str, new: str) -> int:
+    """施設名を書き換える。new が既存の施設名なら統合になる。サンプルは触らない。"""
+    return conn.execute(
+        "UPDATE sessions SET facility = ? WHERE user_id = ? AND facility = ? AND is_sample = 0",
+        (new, user_id, old),
+    ).rowcount
